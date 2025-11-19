@@ -158,6 +158,10 @@ program
   .argument('<url>', 'The full URL to navigate to (e.g., "https://example.com").')
   .action(async (url) => {
     try {
+      // Auto-add https:// if no protocol is specified
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        url = 'https://' + url;
+      }
       await send('/goto', 'POST', { url });
       console.log('Navigated to', url);
     } catch (error) {

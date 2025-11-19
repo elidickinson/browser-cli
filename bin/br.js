@@ -82,11 +82,11 @@ program
     // Prepare environment variables for daemon
     const env = { ...process.env };
     if (opts.adblocker) {
-      env.ADBLOCKER = 'true';
+      env.BR_ADBLOCKER = 'true';
       console.log('Ad blocking enabled');
     }
     if (opts.filterLists) {
-      env.ADBLOCKER_LISTS = opts.filterLists;
+      env.BR_ADBLOCKER_LISTS = opts.filterLists;
       console.log('Custom filter lists:', opts.filterLists);
     }
 

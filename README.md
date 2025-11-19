@@ -90,8 +90,8 @@ br start --adblocker --filter-lists https://example.com/list1.txt,https://exampl
 
 **Using environment variables:**
 ```bash
-ADBLOCKER=true br start
-ADBLOCKER=true ADBLOCKER_LISTS=https://example.com/list1.txt,https://example.com/list2.txt br start
+BR_ADBLOCKER=true br start
+BR_ADBLOCKER=true BR_ADBLOCKER_LISTS=https://example.com/list1.txt,https://example.com/list2.txt br start
 ```
 
 The ad blocker uses the same blocking engine as uBlock Origin and blocks:

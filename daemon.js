@@ -9,9 +9,9 @@ const path = require('path');
 chromium.use(stealth);
 
 // Optional ad blocking (off by default)
-// Enable with: ADBLOCKER=true br open example.com
-// Custom lists: ADBLOCKER_LISTS=https://url1.txt,https://url2.txt br open example.com
-if (process.env.ADBLOCKER === 'true') {
+// Enable with: BR_ADBLOCKER=true br start
+// Custom lists: BR_ADBLOCKER_LISTS=https://url1.txt,https://url2.txt br start
+if (process.env.BR_ADBLOCKER === 'true') {
   const AdblockerPlugin = require('puppeteer-extra-plugin-adblocker');
   const adblockerOptions = {
     blockTrackers: true,
@@ -19,13 +19,13 @@ if (process.env.ADBLOCKER === 'true') {
   };
 
   // Support custom filter lists
-  if (process.env.ADBLOCKER_LISTS) {
-    adblockerOptions.customLists = process.env.ADBLOCKER_LISTS.split(',').map(s => s.trim());
+  if (process.env.BR_ADBLOCKER_LISTS) {
+    adblockerOptions.customLists = process.env.BR_ADBLOCKER_LISTS.split(',').map(s => s.trim());
   }
 
   chromium.use(AdblockerPlugin(adblockerOptions));
   console.log('Ad blocking enabled');
-  if (process.env.ADBLOCKER_LISTS) {
+  if (process.env.BR_ADBLOCKER_LISTS) {
     console.log('Custom filter lists:', adblockerOptions.customLists);
   }
 }

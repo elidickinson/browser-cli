@@ -313,7 +313,7 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      
+
       let file;
       if (req.query.path) {
         // Use custom path, resolve relative paths against current directory
@@ -324,7 +324,7 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
         const domain = url.hostname.replace(/[^a-zA-Z0-9.-]/g, '');
         file = path.join(dir, `shot-${domain}-${Date.now()}.png`);
       }
-      
+
       const fullPage = req.query.fullPage === 'true';
       await getActivePage().screenshot({ path: file, fullPage });
       record('screenshot', { fullPage, path: file });
@@ -470,6 +470,7 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
   });
 
   app.get('/api/screenshot', async (req, res) => {
+    let page;
     try {
       const { url, width, height, fullPage, waitTime } = req.query;
 
@@ -477,7 +478,9 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
         return res.status(400).send('missing url parameter');
       }
 
-      const page = getActivePage();
+      // Create a new page for the screenshot
+      page = await context.newPage();
+      await setupAdblocking(page);
 
       // Set viewport size if width and height are provided
       if (width || height) {
@@ -506,8 +509,14 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
       res.setHeader('Content-Type', 'image/png');
       res.setHeader('Content-Length', screenshotBuffer.length);
       res.send(screenshotBuffer);
+
     } catch (err) {
       res.status(500).send(`Error capturing screenshot: ${err.message}`);
+    } finally {
+      // Close the page if it was created
+      if (page) {
+        await page.close();
+      }
     }
   });
 

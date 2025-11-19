@@ -83,6 +83,46 @@ let lastIdToXPath = {}; // Global variable to store the last idToXPath mapping
 const secrets = new Set();
 const history = [];
 
+async function detectChallengePage(page) {
+  try {
+    return await page.evaluate(() => {
+      // Cloudflare
+      if (document.title === 'Just a moment...' ||
+          window._cf_chl_opt ||
+          document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]') ||
+          (document.querySelector('meta[http-equiv="refresh"]') && document.title.includes('Just a moment'))) {
+        return 'cloudflare';
+      }
+
+      // SiteGround
+      if (document.title === 'Robot Challenge Screen' ||
+          window.sgchallenge ||
+          Array.from(document.querySelectorAll('script')).some(script =>
+            script.textContent.includes('sgchallenge'))) {
+        return 'siteground';
+      }
+
+      return false;
+    });
+  } catch (err) {
+    return false;
+  }
+}
+
+async function waitForChallengeBypass(page, maxWaitSeconds = 8) {
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWaitSeconds * 1000) {
+    const challenge = await detectChallengePage(page);
+    if (!challenge) {
+      return true;
+    }
+    await page.waitForTimeout(100);
+  }
+
+  return false;
+}
+
 async function setupAdblocking(page) {
   if (!adblocker) return;
   await adblocker.enableBlockingInPage(page);
@@ -504,6 +544,9 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
       // Navigate to the URL and wait for it to load
       await page.goto(url, { timeout: 20000 });
 
+      // Wait for challenge pages to complete before screenshotting
+      await waitForChallengeBypass(page);
+
       // Wait additional time if specified (default: 1000ms)
       const additionalWait = waitTime ? parseInt(waitTime, 10) : 1000;
       await page.waitForTimeout(additionalWait);
@@ -568,6 +611,9 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
 
       // Navigate to the URL and wait for it to load
       await page.goto(processedUrl, { timeout: 20000 });
+
+      // Wait for challenge pages to complete before screenshotting
+      await waitForChallengeBypass(page);
 
       // Add style to hide scrollbars for cleaner screenshots
       await page.addStyleTag({

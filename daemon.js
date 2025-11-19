@@ -356,6 +356,21 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
     res.json({ xpath });
   });
 
+  app.post('/eval', async (req, res) => {
+    const { script } = req.body;
+    if (!script) return res.status(400).send('missing script');
+    try {
+      const result = await getActivePage().evaluate((scriptToRun) => {
+        return eval(scriptToRun);
+      }, script);
+      record('eval', { script });
+      // Return result as JSON to handle various types (undefined, null, objects, primitives)
+      res.json({ result });
+    } catch (err) {
+      res.status(500).send(`Error evaluating script: ${err.message}`);
+    }
+  });
+
   const port = 3030;
   app.listen(port, () => {
     console.log(`br daemon running on port ${port}`);

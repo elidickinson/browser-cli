@@ -290,10 +290,10 @@ The daemon exposes an HTTP endpoint for programmatic screenshot capture:
 
 ```bash
 # Basic usage
-curl "http://localhost:3030/api/screenshot?url=https://example.com" -o screenshot.png
+curl -X POST "http://localhost:3030/goto" -H "Content-Type: application/json" -d '{"url":"https://example.com"}'
 
-# Full page with custom viewport
-curl "http://localhost:3030/api/screenshot?url=https://example.com&width=1920&height=1080&fullPage=true" -o screenshot.png
+# Take a screenshot
+curl -X POST "http://localhost:3030/shot" -H "Content-Type: application/json" -d '{"url":"https://example.com","width":1920,"height":1080}' -o screenshot.png
 ```
 
 See [API.md](API.md) for complete API documentation and examples in multiple languages.

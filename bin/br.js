@@ -87,7 +87,7 @@ program
     if (opts.headless) {
       env.BR_HEADLESS = 'true';
       console.log('Running in headless mode');
-      
+
       // Parse viewport size (default: 1280x720)
       if (opts.viewport) {
         const [width, height] = opts.viewport.split('x').map(n => parseInt(n, 10));
@@ -381,7 +381,7 @@ program
       console.error('Error clearing history:', error);
     }
   });
-  
+
 program
   .command('view-tree')
   .description("Display a hierarchical tree of the page's accessibility and DOM nodes.")

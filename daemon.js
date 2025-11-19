@@ -521,59 +521,7 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
     }
   });
 
-  app.get('/api/screenshot', async (req, res) => {
-    let page;
-    try {
-      const { url, width, height, fullPage, waitTime } = req.query;
 
-      if (!url) {
-        return res.status(400).send('missing url parameter');
-      }
-
-      // Create a new page for the screenshot
-      page = await context.newPage();
-      await setupAdblocking(page);
-
-      // Set viewport size if width and height are provided
-      if (width || height) {
-        const viewportWidth = width ? parseInt(width, 10) : 1280;
-        const viewportHeight = height ? parseInt(height, 10) : 720;
-        await page.setViewportSize({ width: viewportWidth, height: viewportHeight });
-      }
-
-      // Navigate to the URL and wait for it to load
-      await page.goto(url, { timeout: 20000 });
-
-      // Wait for challenge pages to complete before screenshotting
-      await waitForChallengeBypass(page);
-
-      // Wait additional time if specified (default: 1000ms)
-      const additionalWait = waitTime ? parseInt(waitTime, 10) : 1000;
-      await page.waitForTimeout(additionalWait);
-
-      // Take screenshot to buffer
-      const isFullPage = fullPage === 'true';
-      const screenshotBuffer = await page.screenshot({
-        fullPage: isFullPage,
-        type: 'png'
-      });
-
-      record('api-screenshot', { url, width, height, fullPage: isFullPage, waitTime: additionalWait });
-
-      // Send the screenshot with proper headers
-      res.setHeader('Content-Type', 'image/png');
-      res.setHeader('Content-Length', screenshotBuffer.length);
-      res.send(screenshotBuffer);
-
-    } catch (err) {
-      res.status(500).send(`Error capturing screenshot: ${err.message}`);
-    } finally {
-      // Close the page if it was created
-      if (page) {
-        await page.close();
-      }
-    }
-  });
 
   app.post('/shot', async (req, res) => {
     let page;

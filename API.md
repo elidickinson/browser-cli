@@ -1,106 +1,83 @@
 # Browser CLI Daemon API
 
-## Screenshot Endpoint
+The Browser CLI Daemon exposes several endpoints for browser automation, navigation, content extraction, and interaction.
 
-The daemon exposes a `/api/screenshot` endpoint that allows you to capture screenshots of web pages directly via HTTP.
+## Browser Control Endpoints
 
-### Endpoint
+### Navigate to a URL
+```
+POST /goto
+Content-Type: application/json
 
-`GET /api/screenshot`
-
-### Query Parameters
-
-| Parameter | Type | Required | Default | Description |
-|-----------|------|----------|---------|-------------|
-| `url` | string | Yes | - | The URL to load and screenshot |
-| `width` | integer | No | 1280 | Viewport width in pixels |
-| `height` | integer | No | 720 | Viewport height in pixels |
-| `fullPage` | boolean | No | false | Capture full scrollable page (true) or just viewport (false) |
-| `waitTime` | integer | No | 1000 | Additional wait time in milliseconds after page load |
-
-### Response
-
-- **Content-Type**: `image/png`
-- **Body**: PNG image binary data
-
-### Examples
-
-#### Basic screenshot
-```bash
-curl "http://localhost:3030/api/screenshot?url=https://example.com" -o screenshot.png
+{
+  "url": "https://example.com"
+}
 ```
 
-#### Full page screenshot
-```bash
-curl "http://localhost:3030/api/screenshot?url=https://example.com&fullPage=true" -o fullpage.png
+### Click an element
+```
+POST /click
+Content-Type: application/json
+
+{
+  "selector": "#button-id",
+  "position": "center" // Optional: "center", "top", "bottom", "left", "right"
+}
 ```
 
-#### Custom viewport size
-```bash
-curl "http://localhost:3030/api/screenshot?url=https://example.com&width=1920&height=1080" -o screenshot.png
+### Type text
+```
+POST /type
+Content-Type: application/json
+
+{
+  "selector": "#input-field",
+  "text": "Hello World"
+}
 ```
 
-#### With additional wait time
-```bash
-curl "http://localhost:3030/api/screenshot?url=https://example.com&waitTime=3000" -o screenshot.png
+### Extract page content
+```
+GET /content
 ```
 
-#### Combined parameters
-```bash
-curl "http://localhost:3030/api/screenshot?url=https://example.com&width=1920&height=1080&fullPage=true&waitTime=2000" -o screenshot.png
+Returns the HTML content of the current page.
+
+## Content Extraction Endpoints
+
+### Extract page as JSON
+```
+GET /dom
 ```
 
-### Using with other HTTP clients
+Returns a structured JSON representation of the DOM with XPath mappings.
 
-#### Python (requests)
-```python
-import requests
-
-response = requests.get('http://localhost:3030/api/screenshot', params={
-    'url': 'https://example.com',
-    'width': 1920,
-    'height': 1080,
-    'fullPage': 'true'
-})
-
-with open('screenshot.png', 'wb') as f:
-    f.write(response.content)
+### Extract accessibility tree
+```
+GET /ax
 ```
 
-#### Node.js (axios)
-```javascript
-const axios = require('axios');
-const fs = require('fs');
+Returns the accessibility tree of the current page.
 
-axios.get('http://localhost:3030/api/screenshot', {
-    params: {
-        url: 'https://example.com',
-        width: 1920,
-        height: 1080,
-        fullPage: true
-    },
-    responseType: 'arraybuffer'
-}).then(response => {
-    fs.writeFileSync('screenshot.png', response.data);
-});
+## Session Management
+
+### Get browser info
+```
+GET /info
 ```
 
-#### Browser (JavaScript Fetch)
-```javascript
-fetch('http://localhost:3030/api/screenshot?url=https://example.com')
-    .then(response => response.blob())
-    .then(blob => {
-        const url = URL.createObjectURL(blob);
-        const img = document.createElement('img');
-        img.src = url;
-        document.body.appendChild(img);
-    });
+Returns browser version, page count, and other session information.
+
+### Close session
 ```
+POST /shutdown
+```
+
+Gracefully shuts down the browser daemon.
 
 ### Notes
 
-- The endpoint navigates the active browser page to the specified URL
-- Uses `networkidle` wait strategy to ensure page is loaded
-- Screenshots are returned directly as binary data (not saved to disk)
-- Ideal for integration with other services, APIs, or automation tools
-- The browser context persists between requests, so cookies and sessions are maintained
+- The daemon maintains a persistent browser context that persists between requests
+- Cookies and sessions are maintained across requests
+- Most endpoints operate on the currently active browser tab
+- The daemon supports tab management through dedicated endpoints

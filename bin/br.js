@@ -54,7 +54,9 @@ function send(path, method = 'GET', body) {
 program
   .command('start')
   .description('Start the headless browser daemon process.')
-  .action(async () => {
+  .option('--adblocker', 'Enable ad blocking (blocks ads, trackers, and annoyances)')
+  .option('--filter-lists <urls>', 'Comma-separated list of custom filter list URLs')
+  .action(async (opts) => {
     const pid = getRunningPid();
     if (pid) {
       try {
@@ -77,9 +79,21 @@ program
       }
     }
 
+    // Prepare environment variables for daemon
+    const env = { ...process.env };
+    if (opts.adblocker) {
+      env.ADBLOCKER = 'true';
+      console.log('Ad blocking enabled');
+    }
+    if (opts.filterLists) {
+      env.ADBLOCKER_LISTS = opts.filterLists;
+      console.log('Custom filter lists:', opts.filterLists);
+    }
+
     const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {
       detached: true,
-      stdio: ['pipe', 'pipe', 'pipe']
+      stdio: ['pipe', 'pipe', 'pipe'],
+      env
     });
 
     let stdout = '';

@@ -77,16 +77,20 @@ Search for job posting
 
 ### Ad Blocking
 
-Ad blocking is **off by default** to keep the browser lightweight. Enable it using environment variables:
+Ad blocking is **off by default** to keep the browser lightweight. Enable it with CLI flags or environment variables.
 
-**Basic usage:**
+**Using CLI flags (recommended):**
 ```bash
-ADBLOCKER=true br start
-ADBLOCKER=true br goto https://example.com
+# Enable ad blocking
+br start --adblocker
+
+# With custom filter lists
+br start --adblocker --filter-lists https://example.com/list1.txt,https://example.com/list2.txt
 ```
 
-**With custom filter lists:**
+**Using environment variables:**
 ```bash
+ADBLOCKER=true br start
 ADBLOCKER=true ADBLOCKER_LISTS=https://example.com/list1.txt,https://example.com/list2.txt br start
 ```
 
@@ -95,14 +99,22 @@ The ad blocker uses the same blocking engine as uBlock Origin and blocks:
 - Trackers
 - Annoyances (cookie banners, popups, etc.)
 
-**Note:** The daemon inherits environment variables when started, so you can set these once when starting the daemon and they'll apply to all subsequent browser actions.
-
 ## Command
 
 ### Start the daemon
 ```bash
 br start
 ```
+
+**Options:**
+- `--adblocker` - Enable ad blocking
+- `--filter-lists <urls>` - Comma-separated custom filter list URLs
+
+**Example:**
+```bash
+br start --adblocker
+```
+
 If starting the daemon fails (for example due to missing Playwright browsers),
 the CLI prints the error output so you can diagnose the issue.
 

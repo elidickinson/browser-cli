@@ -56,7 +56,7 @@ program
   .description('Start the headless browser daemon process.')
   .option('--adblock', 'Enable ad blocking (blocks ads, trackers, and annoyances)')
   .option('--adblock-base <level>', 'Base filter level: none, adsandtrackers, full, or ads (default: adsandtrackers)')
-  .option('--adblock-lists <urls>', 'Comma-separated list of additional filter list URLs')
+  .option('--adblock-lists <paths>', 'Comma-separated list of additional filter list URLs or file paths')
   .action(async (opts) => {
     const pid = getRunningPid();
     if (pid) {

@@ -10,63 +10,75 @@ chromium.use(stealth);
 
 // Optional ad blocking (off by default)
 // Enable with: BR_ADBLOCK=true br start
-// Base level: BR_ADBLOCK_BASE=none|default|full|ads
-// Additional lists: BR_ADBLOCK_LISTS=https://url1.txt,https://url2.txt br start
+// Base level: BR_ADBLOCK_BASE=none|adsandtrackers|full|ads
+// Additional lists: BR_ADBLOCK_LISTS=https://url1.txt,https://url2.txt
 let adblocker = null;
-if (process.env.BR_ADBLOCK === 'true') {
+
+async function initAdblocker() {
   const { PlaywrightBlocker } = require('@ghostery/adblocker-playwright');
   const fetch = require('cross-fetch');
-  
-  async function initAdblocker() {
-    try {
-      const base = process.env.BR_ADBLOCK_BASE || 'adsandtrackers';
-      const additionalLists = process.env.BR_ADBLOCK_LISTS;
-      
-      // Get base blocker
-      let blocker;
-      switch (base) {
-        case 'none':
-          blocker = PlaywrightBlocker.empty();
-          console.log('Ad blocking enabled (no base filters)');
-          break;
-        case 'full':
-          blocker = await PlaywrightBlocker.fromPrebuiltFull(fetch);
-          console.log('Ad blocking enabled (full: ads + tracking + annoyances + cookies)');
-          break;
-        case 'ads':
-          blocker = await PlaywrightBlocker.fromPrebuiltAdsOnly(fetch);
-          console.log('Ad blocking enabled (ads only)');
-          break;
-        case 'adsandtrackers':
-        default:
-          blocker = await PlaywrightBlocker.fromPrebuiltAdsAndTracking(fetch);
-          console.log('Ad blocking enabled (ads + tracking)');
-          break;
-      }
-      
-      // Add additional lists if specified
-      if (additionalLists) {
-        const customLists = additionalLists.split(',').map(s => s.trim());
-        for (const listUrl of customLists) {
-          try {
-            const response = await fetch(listUrl);
-            const listContent = await response.text();
-            blocker.updateFromDiff(listContent);
-          } catch (err) {
-            console.warn(`Failed to load custom list ${listUrl}:`, err.message);
-          }
-        }
-        console.log('Additional filter lists:', customLists);
-      }
-      
-      adblocker = blocker;
-      
-    } catch (err) {
-      console.error('Failed to initialize adblocker:', err);
+
+  try {
+    const base = process.env.BR_ADBLOCK_BASE || 'adsandtrackers';
+    const additionalLists = process.env.BR_ADBLOCK_LISTS;
+
+    // Get base blocker
+    let blocker;
+    switch (base) {
+      case 'none':
+        blocker = PlaywrightBlocker.empty();
+        console.log('Ad blocking enabled (no base filters)');
+        break;
+      case 'full':
+        blocker = await PlaywrightBlocker.fromPrebuiltFull(fetch);
+        console.log('Ad blocking enabled (full: ads + tracking + annoyances + cookies)');
+        break;
+      case 'ads':
+        blocker = await PlaywrightBlocker.fromPrebuiltAdsOnly(fetch);
+        console.log('Ad blocking enabled (ads only)');
+        break;
+      case 'adsandtrackers':
+      default:
+        blocker = await PlaywrightBlocker.fromPrebuiltAdsAndTracking(fetch);
+        console.log('Ad blocking enabled (ads + tracking)');
+        break;
     }
+
+    // Add additional lists if specified
+    if (additionalLists) {
+      const customLists = additionalLists.split(',').map(s => s.trim());
+
+      for (const listPath of customLists) {
+        try {
+          let listContent;
+          if (listPath.startsWith('http://') || listPath.startsWith('https://')) {
+            const response = await fetch(listPath);
+            listContent = await response.text();
+          } else {
+            listContent = fs.readFileSync(listPath, 'utf8');
+          }
+
+          const filters = listContent
+            .split('\n')
+            .map(line => line.trim())
+            .filter(line => line.length > 0 && !line.startsWith('!'));
+
+          console.log(`Loaded ${listContent.split('\n').length} lines (${filters.length} active rules) from ${listPath}`);
+
+          blocker.updateFromDiff({ added: filters });
+
+          console.log(`Successfully applied custom list ${listPath}`);
+        } catch (err) {
+          console.warn(`Failed to load custom list ${listPath}:`, err.message);
+        }
+      }
+    }
+
+    adblocker = blocker;
+
+  } catch (err) {
+    console.error('Failed to initialize adblocker:', err);
   }
-  
-  initAdblocker();
 }
 
 let lastIdToXPath = {}; // Global variable to store the last idToXPath mapping
@@ -75,8 +87,6 @@ const history = [];
 
 async function setupAdblocking(page) {
   if (!adblocker) return;
-  
-  // Use the standard Playwright integration
   await adblocker.enableBlockingInPage(page);
 }
 
@@ -87,6 +97,10 @@ function record(action, args = {}) {
 const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
 
 (async () => {
+  // Initialize adblocker if enabled
+  if (process.env.BR_ADBLOCK === 'true') {
+    await initAdblocker();
+  }
   const context = await chromium.launchPersistentContext(tmpUserDataDir, { headless: false, viewport: null });
   const browser = await context.browser();
   let pages = [];
@@ -95,11 +109,7 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
   const initialPage = await context.newPage();
   pages.push(initialPage);
   activePage = initialPage;
-  
-  // Enable ad blocking on initial page if available
-  if (adblocker) {
-    await setupAdblocking(initialPage);
-  }
+  await setupAdblocking(initialPage);
 
   function getActivePage() {
     return activePage;
@@ -107,12 +117,8 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
 
   context.on('page', async newPage => {
     pages = await context.pages();
-    activePage = newPage; // Set newly opened page as active
-    
-    // Enable ad blocking on new pages if available
-    if (adblocker) {
-      await setupAdblocking(newPage);
-    }
+    activePage = newPage;
+    await setupAdblocking(newPage);
   });
 
   context.on('framenavigated', async frame => {

@@ -403,6 +403,47 @@ program
     }
   });
 
+program
+  .command('eval')
+  .description('Execute JavaScript in the browser context and return the result.')
+  .argument('[script]', 'JavaScript code to execute (if not using --file).')
+  .option('-f, --file <path>', 'Path to a JavaScript file to execute.')
+  .action(async (script, opts) => {
+    try {
+      let scriptToRun = script;
+
+      if (opts.file) {
+        // Read JavaScript from file
+        if (!fs.existsSync(opts.file)) {
+          console.error(`Error: File not found: ${opts.file}`);
+          return;
+        }
+        scriptToRun = fs.readFileSync(opts.file, 'utf8');
+      }
+
+      if (!scriptToRun) {
+        console.error('Error: No script provided. Use either a script argument or --file option.');
+        return;
+      }
+
+      const response = await send('/eval', 'POST', { script: scriptToRun });
+      const { result } = JSON.parse(response);
+
+      // Pretty print the result
+      if (result === undefined) {
+        console.log('undefined');
+      } else if (result === null) {
+        console.log('null');
+      } else if (typeof result === 'object') {
+        console.log(JSON.stringify(result, null, 2));
+      } else {
+        console.log(result);
+      }
+    } catch (error) {
+      console.error('Error executing script:', error);
+    }
+  });
+
 try {
   program.parse();
 } catch (err) {

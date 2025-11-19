@@ -109,10 +109,10 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
     const height = parseInt(process.env.BR_VIEWPORT_HEIGHT || '720', 10);
     viewport = { width, height };
   }
-  
-  const context = await chromium.launchPersistentContext(tmpUserDataDir, { 
-    headless: process.env.BR_HEADLESS === 'true', 
-    viewport 
+
+  const context = await chromium.launchPersistentContext(tmpUserDataDir, {
+    headless: process.env.BR_HEADLESS === 'true',
+    viewport
   });
   const browser = await context.browser();
   let pages = [];
@@ -163,6 +163,9 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
 
   const app = express();
   app.use(express.json());
+
+  // Serve static files
+  app.use(express.static(path.join(__dirname, 'public')));
 
   app.get('/health', (req, res) => {
     res.send('ok');
@@ -535,18 +538,24 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
   app.post('/shot', async (req, res) => {
     let page;
     try {
-      const { 
-        url, 
-        width, 
-        height, 
-        waitTime, 
-        output_width, 
-        output_format, 
-        output_quality 
+      const {
+        url,
+        width,
+        height,
+        waitTime,
+        output_width,
+        output_format,
+        output_quality
       } = req.body;
 
       if (!url) {
         return res.status(400).json({ error: 'missing url parameter' });
+      }
+
+      // Prepend https:// if no protocol is specified
+      let processedUrl = url;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        processedUrl = `https://${url}`;
       }
 
       // Create a new page for the screenshot
@@ -561,7 +570,21 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
       }
 
       // Navigate to the URL and wait for it to load
-      await page.goto(url, { timeout: 20000 });
+      await page.goto(processedUrl, { timeout: 20000 });
+
+      // Add style to hide scrollbars for cleaner screenshots
+      await page.addStyleTag({
+        content: `
+          /* WebKit scrollbar hiding (Chrome, Safari) */
+          ::-webkit-scrollbar { display: none; }
+
+          /* Firefox */
+          html { scrollbar-width: none; }
+
+          /* IE and Edge */
+          html { -ms-overflow-style: none; }
+        `
+      });
 
       // Wait additional time if specified (default: 1000ms)
       const additionalWait = waitTime ? parseInt(waitTime, 10) : 1000;
@@ -587,8 +610,8 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
       // Resize if output_width is specified
       if (output_width) {
         const outputWidth = parseInt(output_width, 10);
-        processor = processor.resize(outputWidth, null, { 
-          withoutEnlargement: true 
+        processor = processor.resize(outputWidth, null, {
+          withoutEnlargement: true
         });
       }
 
@@ -618,7 +641,16 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
       }
     }
   });
-  
+
+  // API endpoint for serving the web interface
+  app.get('/', (req, res) => {
+    let html = fs.readFileSync(path.join(__dirname, 'public/index.html'), 'utf8');
+
+
+
+    res.send(html);
+  });
+
   const port = 3030;
   app.listen(port, () => {
     console.log(`br daemon running on port ${port}`);

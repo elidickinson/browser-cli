@@ -54,8 +54,9 @@ function send(path, method = 'GET', body) {
 program
   .command('start')
   .description('Start the headless browser daemon process.')
-  .option('--adblocker', 'Enable ad blocking (blocks ads, trackers, and annoyances)')
-  .option('--filter-lists <urls>', 'Comma-separated list of custom filter list URLs')
+  .option('--adblock', 'Enable ad blocking (blocks ads, trackers, and annoyances)')
+  .option('--adblock-base <level>', 'Base filter level: none, adsandtrackers, full, or ads (default: adsandtrackers)')
+  .option('--adblock-lists <urls>', 'Comma-separated list of additional filter list URLs')
   .action(async (opts) => {
     const pid = getRunningPid();
     if (pid) {
@@ -81,13 +82,17 @@ program
 
     // Prepare environment variables for daemon
     const env = { ...process.env };
-    if (opts.adblocker) {
-      env.BR_ADBLOCKER = 'true';
+    if (opts.adblock) {
+      env.BR_ADBLOCK = 'true';
       console.log('Ad blocking enabled');
     }
-    if (opts.filterLists) {
-      env.BR_ADBLOCKER_LISTS = opts.filterLists;
-      console.log('Custom filter lists:', opts.filterLists);
+    if (opts.adblockBase) {
+      env.BR_ADBLOCK_BASE = opts.adblockBase;
+      console.log('Base filter level:', opts.adblockBase);
+    }
+    if (opts.adblockLists) {
+      env.BR_ADBLOCK_LISTS = opts.adblockLists;
+      console.log('Additional filter lists:', opts.adblockLists);
     }
 
     const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {

@@ -81,23 +81,42 @@ Ad blocking is **off by default** to keep the browser lightweight. Enable it wit
 
 **Using CLI flags (recommended):**
 ```bash
-# Enable ad blocking
-br start --adblocker
+# Enable ad blocking (ads + tracking)
+br start --adblock
 
-# With custom filter lists
-br start --adblocker --filter-lists https://example.com/list1.txt,https://example.com/list2.txt
+# Full protection (ads + tracking + annoyances + cookies)
+br start --adblock --adblock-base full
+
+# Ads only
+br start --adblock --adblock-base ads
+
+# No base filters (only custom lists)
+br start --adblock --adblock-base none --adblock-lists https://example.com/list.txt
+
+# Add custom lists to base filters
+br start --adblock --adblock-lists https://example.com/list1.txt,https://example.com/list2.txt
 ```
 
 **Using environment variables:**
 ```bash
-BR_ADBLOCKER=true br start
-BR_ADBLOCKER=true BR_ADBLOCKER_LISTS=https://example.com/list1.txt,https://example.com/list2.txt br start
+BR_ADBLOCK=true br start
+BR_ADBLOCK=true BR_ADBLOCK_BASE=full br start
+BR_ADBLOCK=true BR_ADBLOCK_BASE=ads br start
+BR_ADBLOCK=true BR_ADBLOCK_BASE=none BR_ADBLOCK_LISTS=https://example.com/list.txt br start
+BR_ADBLOCK=true BR_ADBLOCK_LISTS=https://example.com/list1.txt,https://example.com/list2.txt br start
 ```
 
-The ad blocker uses the same blocking engine as uBlock Origin and blocks:
-- Ads
-- Trackers
-- Annoyances (cookie banners, popups, etc.)
+**Base Filter Levels:**
+- `adsandtrackers` - Ads + tracking (14 lists)
+- `full` - Ads + tracking + annoyances + cookies (17 lists)  
+- `ads` - Ads only (12 lists)
+- `none` - No base filters (use only custom lists)
+
+**Default Blocklists (ads + tracking):**
+- EasyList, EasyPrivacy
+- uBlock Origin filters (2020-2024)
+- Peter Lowe's server list
+- Privacy and badware protection
 
 ## Command
 
@@ -107,8 +126,9 @@ br start
 ```
 
 **Options:**
-- `--adblocker` - Enable ad blocking
-- `--filter-lists <urls>` - Comma-separated custom filter list URLs
+- `--adblock` - Enable ad blocking
+- `--adblock-base <level>` - Base filter level: `none`, `adsandtrackers`, `full`, or `ads` (default: `adsandtrackers`)
+- `--adblock-lists <urls>` - Comma-separated additional filter list URLs
 
 **Example:**
 ```bash

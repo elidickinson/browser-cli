@@ -1,13 +1,10 @@
 const express = require('express');
-const { chromium } = require('playwright-extra');
-const stealth = require('puppeteer-extra-plugin-stealth')();
+const { chromium } = require('patchright');
+// Patchright has stealth features built-in
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const sharp = require('sharp');
-
-// Configure plugins
-chromium.use(stealth);
 
 // Optional ad blocking (off by default)
 // Enable with: BR_ADBLOCK=true br start

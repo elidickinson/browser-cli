@@ -128,6 +128,37 @@ async function setupAdblocking(page) {
   await adblocker.enableBlockingInPage(page);
 }
 
+// Automatically dismisses modals and other UI elements
+async function dismissModals(page) {
+  try {
+    // Check if welcome modal close button exists
+    const closeButton = await page.$('button[data-testid="close-welcome-modal"]');
+    if (closeButton) {
+      await closeButton.click();
+      console.log('Closed welcome modal automatically');
+      // Wait a moment to ensure the modal is fully dismissed
+      await page.waitForTimeout(2500);
+      // Verify it's gone
+      const stillVisible = await page.isVisible('button[data-testid="close-welcome-modal"]').catch(() => false);
+      if (!stillVisible) {
+        console.log('Welcome modal successfully dismissed');
+      }
+    }
+
+    // You can add more automatic UI rules here in the future
+    // Example:
+    // const cookieNotice = await page.$('.cookie-notice button.accept');
+    // if (cookieNotice) {
+    //   await cookieNotice.click();
+    //   await page.waitForTimeout(500);
+    // }
+
+  } catch (error) {
+    // Silently fail if button is not clickable or page navigates away
+    console.debug('Could not dismiss modal:', error.message);
+  }
+}
+
 function record(action, args = {}) {
   history.push({ action, args, timestamp: new Date().toISOString() });
 }
@@ -199,6 +230,13 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
   });
 
   const app = express();
+
+  // Add request logging middleware
+  app.use((req, res, next) => {
+    console.log(`[${new Date().toISOString()}] ${req.method} ${req.path}`);
+    next();
+  });
+
   app.use(express.json());
 
   // Serve static files
@@ -562,6 +600,9 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
 
       // Wait for challenge pages to complete before screenshotting
       await waitForChallengeBypass(page);
+
+      // dismiss any modals not caught by adblock
+      await dismissModals(getActivePage());
 
       // Add style to hide scrollbars for cleaner screenshots
       await page.addStyleTag({

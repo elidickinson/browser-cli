@@ -313,7 +313,7 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      
+
       let file;
       if (req.query.path) {
         // Use custom path, resolve relative paths against current directory
@@ -324,8 +324,50 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
         const domain = url.hostname.replace(/[^a-zA-Z0-9.-]/g, '');
         file = path.join(dir, `shot-${domain}-${Date.now()}.png`);
       }
-      
+
       const fullPage = req.query.fullPage === 'true';
+
+      if (fullPage) {
+        // Inject JS to try to automate lazy loading before fullPage screenshot
+        await getActivePage().evaluate(() => {
+          // Handle lazy loaded images (some have loading as a JS property not an attribute)
+          const images = document.querySelectorAll('img');
+          images.forEach(img => {
+            // convert data-src to src
+            if (img.dataset.src) {
+              img.src = img.dataset.src;
+              delete img.dataset.src;
+            }
+            // Remove lazy loading attribute
+            if (img.loading === 'lazy') {
+              img.loading = 'eager';
+              img.decode(); // try to force loading right now
+            }
+            // remove responsive elements - fix to current src
+            const currentSrc = img.currentSrc || img.src;
+            img.src = currentSrc;
+            img.removeAttribute('srcset');
+            img.removeAttribute('sizes');
+          });
+
+          // Handle other elements that might have data-src (like iframes)
+          document.querySelectorAll('[data-src]:not(img)').forEach(el => {
+            if (el.dataset.src) {
+              el.src = el.dataset.src;
+              delete el.dataset.src;
+            }
+          });
+        });
+
+        // Wait up to 5 seconds for images to load
+        const startTime = Date.now();
+        while (Date.now() - startTime < 5000) {
+          if (await getActivePage().evaluate(() => Array.from(document.querySelectorAll('img[src]')).every(img => img.complete)))
+            break;
+          await new Promise(resolve => setTimeout(resolve, 100)); //wait a bit before checking again
+        }
+      }
+
       await getActivePage().screenshot({ path: file, fullPage });
       record('screenshot', { fullPage, path: file });
       res.send(file);

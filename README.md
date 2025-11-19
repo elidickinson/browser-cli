@@ -161,7 +161,11 @@ br clear-history
 ### Capture a screenshot
 
 ```bash
+# Capture just the viewport (default)
 br screenshot
+
+# Capture the full scrollable page
+br screenshot --full-page
 ```
 
 ### View accessibility and DOM tree

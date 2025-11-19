@@ -229,7 +229,9 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
         fs.mkdirSync(dir, { recursive: true });
       }
       const file = path.join(dir, `shot-${Date.now()}.png`);
-      await getActivePage().screenshot({ path: file });
+      const fullPage = req.query.fullPage === 'true';
+      await getActivePage().screenshot({ path: file, fullPage });
+      record('screenshot', { fullPage });
       res.send(file);
     } catch (err) {
       res.status(500).send(err.message);

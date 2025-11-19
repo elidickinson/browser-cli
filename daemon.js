@@ -4,6 +4,7 @@ const stealth = require('puppeteer-extra-plugin-stealth')();
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const sharp = require('sharp');
 
 // Configure plugins
 chromium.use(stealth);
@@ -531,6 +532,93 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
     }
   });
 
+  app.post('/shot', async (req, res) => {
+    let page;
+    try {
+      const { 
+        url, 
+        width, 
+        height, 
+        waitTime, 
+        output_width, 
+        output_format, 
+        output_quality 
+      } = req.body;
+
+      if (!url) {
+        return res.status(400).json({ error: 'missing url parameter' });
+      }
+
+      // Create a new page for the screenshot
+      page = await context.newPage();
+      await setupAdblocking(page);
+
+      // Set viewport size if width and height are provided
+      if (width || height) {
+        const viewportWidth = width ? parseInt(width, 10) : 1280;
+        const viewportHeight = height ? parseInt(height, 10) : 720;
+        await page.setViewportSize({ width: viewportWidth, height: viewportHeight });
+      }
+
+      // Navigate to the URL and wait for it to load
+      await page.goto(url, { timeout: 20000 });
+
+      // Wait additional time if specified (default: 1000ms)
+      const additionalWait = waitTime ? parseInt(waitTime, 10) : 1000;
+      await page.waitForTimeout(additionalWait);
+
+      // Take screenshot to buffer
+      const isFullPage = !height; // Full page if height not provided
+      const screenshotBuffer = await page.screenshot({
+        fullPage: isFullPage,
+        type: 'png'
+      });
+
+      record('api-shot', { url, width, height, fullPage: isFullPage, waitTime: additionalWait });
+
+      // Apply output transformations if specified
+      let processedBuffer = screenshotBuffer;
+      const format = output_format || 'png';
+      const quality = output_quality ? parseInt(output_quality, 10) : 80;
+
+      // Create sharp processor
+      let processor = sharp(screenshotBuffer);
+
+      // Resize if output_width is specified
+      if (output_width) {
+        const outputWidth = parseInt(output_width, 10);
+        processor = processor.resize(outputWidth, null, { 
+          withoutEnlargement: true 
+        });
+      }
+
+      // Convert to the requested format
+      if (format === 'webp') {
+        processor = processor.webp({ quality });
+        processedBuffer = await processor.toBuffer();
+        res.setHeader('Content-Type', 'image/webp');
+      } else if (format === 'jpeg' || format === 'jpg') {
+        processor = processor.jpeg({ quality });
+        processedBuffer = await processor.toBuffer();
+        res.setHeader('Content-Type', 'image/jpeg');
+      } else {
+        // Default to PNG
+        res.setHeader('Content-Type', 'image/png');
+      }
+
+      res.setHeader('Content-Length', processedBuffer.length);
+      res.send(processedBuffer);
+
+    } catch (err) {
+      res.status(500).json({ error: `Error capturing screenshot: ${err.message}` });
+    } finally {
+      // Close the page if it was created
+      if (page) {
+        await page.close();
+      }
+    }
+  });
+  
   const port = 3030;
   app.listen(port, () => {
     console.log(`br daemon running on port ${port}`);

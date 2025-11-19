@@ -71,6 +71,31 @@ Search for job posting
 - **Structured web page view**: Accessibility tree view for easier LLM interpretation than HTML
 - **Secret management**: Secret management to isolate password from LLM
 - **History tracking**: History tracking for replay and scripting
+- **Ad blocking**: Optional ad and tracker blocking with custom filter list support
+
+## Configuration
+
+### Ad Blocking
+
+Ad blocking is **off by default** to keep the browser lightweight. Enable it using environment variables:
+
+**Basic usage:**
+```bash
+ADBLOCKER=true br start
+ADBLOCKER=true br goto https://example.com
+```
+
+**With custom filter lists:**
+```bash
+ADBLOCKER=true ADBLOCKER_LISTS=https://example.com/list1.txt,https://example.com/list2.txt br start
+```
+
+The ad blocker uses the same blocking engine as uBlock Origin and blocks:
+- Ads
+- Trackers
+- Annoyances (cookie banners, popups, etc.)
+
+**Note:** The daemon inherits environment variables when started, so you can set these once when starting the daemon and they'll apply to all subsequent browser actions.
 
 ## Command
 

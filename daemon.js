@@ -1,11 +1,34 @@
 const express = require('express');
 const { chromium } = require('playwright-extra');
 const stealth = require('puppeteer-extra-plugin-stealth')();
-
-chromium.use(stealth);
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+
+// Configure plugins
+chromium.use(stealth);
+
+// Optional ad blocking (off by default)
+// Enable with: ADBLOCKER=true br open example.com
+// Custom lists: ADBLOCKER_LISTS=https://url1.txt,https://url2.txt br open example.com
+if (process.env.ADBLOCKER === 'true') {
+  const AdblockerPlugin = require('puppeteer-extra-plugin-adblocker');
+  const adblockerOptions = {
+    blockTrackers: true,
+    blockTrackersAndAnnoyances: true
+  };
+
+  // Support custom filter lists
+  if (process.env.ADBLOCKER_LISTS) {
+    adblockerOptions.customLists = process.env.ADBLOCKER_LISTS.split(',').map(s => s.trim());
+  }
+
+  chromium.use(AdblockerPlugin(adblockerOptions));
+  console.log('Ad blocking enabled');
+  if (process.env.ADBLOCKER_LISTS) {
+    console.log('Custom filter lists:', adblockerOptions.customLists);
+  }
+}
 
 let lastIdToXPath = {}; // Global variable to store the last idToXPath mapping
 const secrets = new Set();

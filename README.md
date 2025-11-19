@@ -5,6 +5,13 @@
 
 <h1 align="center">Browser CLI </h1>
 
+**Fork of [browsemake/browser-cli](https://github.com/browsemake/browser-cli) with additional features:**
+- JavaScript execution (`br eval`) for running custom scripts on web pages
+- Enhanced screenshot options with custom paths and full-page capture
+- Ad blocking with configurable filter levels and custom blocklists
+
+<hr><br>
+
 <div align="center">
   
   [![Discord](https://img.shields.io/discord/1391101800052035714?color=7289DA&label=Discord&logo=discord&logoColor=white)](https://discord.gg/N7crMvEX)
@@ -72,67 +79,13 @@ Search for job posting
 - **Secret management**: Secret management to isolate password from LLM
 - **History tracking**: History tracking for replay and scripting
 - **Ad blocking**: Optional ad and tracker blocking with custom filter list support
-
-## Configuration
-
-### Ad Blocking
-
-Ad blocking is **off by default** to keep the browser lightweight. Enable it with CLI flags or environment variables.
-
-**Using CLI flags (recommended):**
-```bash
-# Enable ad blocking (ads + tracking)
-br start --adblock
-
-# Full protection (ads + tracking + annoyances + cookies)
-br start --adblock --adblock-base full
-
-# Ads only
-br start --adblock --adblock-base ads
-
-# No base filters (only custom lists)
-br start --adblock --adblock-base none --adblock-lists https://example.com/list.txt
-
-# Add custom lists to base filters
-br start --adblock --adblock-lists https://example.com/list1.txt,https://example.com/list2.txt
-```
-
-**Using environment variables:**
-```bash
-BR_ADBLOCK=true br start
-BR_ADBLOCK=true BR_ADBLOCK_BASE=full br start
-BR_ADBLOCK=true BR_ADBLOCK_BASE=ads br start
-BR_ADBLOCK=true BR_ADBLOCK_BASE=none BR_ADBLOCK_LISTS=https://example.com/list.txt br start
-BR_ADBLOCK=true BR_ADBLOCK_LISTS=https://example.com/list1.txt,https://example.com/list2.txt br start
-```
-
-**Base Filter Levels:**
-- `adsandtrackers` - Ads + tracking (14 lists)
-- `full` - Ads + tracking + annoyances + cookies (17 lists)  
-- `ads` - Ads only (12 lists)
-- `none` - No base filters (use only custom lists)
-
-**Default Blocklists (ads + tracking):**
-- EasyList, EasyPrivacy
-- uBlock Origin filters (2020-2024)
-- Peter Lowe's server list
-- Privacy and badware protection
+- **JavaScript injection**: Execute custom JavaScript code on web pages
 
 ## Command
 
 ### Start the daemon
 ```bash
 br start
-```
-
-**Options:**
-- `--adblock` - Enable ad blocking
-- `--adblock-base <level>` - Base filter level: `none`, `adsandtrackers`, `full`, or `ads` (default: `adsandtrackers`)
-- `--adblock-lists <urls>` - Comma-separated additional filter list URLs
-
-**Example:**
-```bash
-br start --adblocker
 ```
 
 If starting the daemon fails (for example due to missing Playwright browsers),
@@ -251,6 +204,45 @@ br tabs
 ```bash
 br switch-tab 1
 ```
+
+### Start daemon with ad blocking
+
+```bash
+# Enable ad blocking (ads + tracking)
+br start --adblock
+
+# Full protection (ads + tracking + annoyances + cookies)
+br start --adblock --adblock-base full
+
+# Use custom filter lists only (can be URLs or local files)
+br start --adblock none --adblock-lists https://example.com/list1.txt,/path/to/local-list.txt
+```
+
+**Options:**
+- `--adblock` - Enable ad blocking
+- `--adblock-base <level>` - Base filter level: `none`, `adsandtrackers`, `full` (ads + trackers + annoyances + cookies), or `ads` [default: `adsandtrackers`]
+- `--adblock-lists <paths>` - Comma-separated additional filter list URLs or local file paths
+
+Ad blocking is powered by [@ghostery/adblocker-playwright](https://github.com/ghostery/adblocker) with blocklists from EasyList, EasyPrivacy, and uBlock Origin.
+
+### Execute JavaScript
+
+```bash
+# Execute JavaScript code
+br js "document.body.style.backgroundColor = 'lightblue'"
+
+# Execute JavaScript and return the result
+br js "return document.title"
+
+# Execute multi-line JavaScript
+br js "
+const elements = document.querySelectorAll('button');
+elements.forEach(el => el.style.border = '2px solid red');
+return elements.length;
+"
+```
+
+The `js` command executes JavaScript code in the context of the current page and returns any value that is explicitly returned from the script.
 
 ### Stop the daemon
 

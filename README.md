@@ -71,6 +71,52 @@ Search for job posting
 - **Structured web page view**: Accessibility tree view for easier LLM interpretation than HTML
 - **Secret management**: Secret management to isolate password from LLM
 - **History tracking**: History tracking for replay and scripting
+- **Ad blocking**: Optional ad and tracker blocking with custom filter list support
+
+## Configuration
+
+### Ad Blocking
+
+Ad blocking is **off by default** to keep the browser lightweight. Enable it with CLI flags or environment variables.
+
+**Using CLI flags (recommended):**
+```bash
+# Enable ad blocking (ads + tracking)
+br start --adblock
+
+# Full protection (ads + tracking + annoyances + cookies)
+br start --adblock --adblock-base full
+
+# Ads only
+br start --adblock --adblock-base ads
+
+# No base filters (only custom lists)
+br start --adblock --adblock-base none --adblock-lists https://example.com/list.txt
+
+# Add custom lists to base filters
+br start --adblock --adblock-lists https://example.com/list1.txt,https://example.com/list2.txt
+```
+
+**Using environment variables:**
+```bash
+BR_ADBLOCK=true br start
+BR_ADBLOCK=true BR_ADBLOCK_BASE=full br start
+BR_ADBLOCK=true BR_ADBLOCK_BASE=ads br start
+BR_ADBLOCK=true BR_ADBLOCK_BASE=none BR_ADBLOCK_LISTS=https://example.com/list.txt br start
+BR_ADBLOCK=true BR_ADBLOCK_LISTS=https://example.com/list1.txt,https://example.com/list2.txt br start
+```
+
+**Base Filter Levels:**
+- `adsandtrackers` - Ads + tracking (14 lists)
+- `full` - Ads + tracking + annoyances + cookies (17 lists)  
+- `ads` - Ads only (12 lists)
+- `none` - No base filters (use only custom lists)
+
+**Default Blocklists (ads + tracking):**
+- EasyList, EasyPrivacy
+- uBlock Origin filters (2020-2024)
+- Peter Lowe's server list
+- Privacy and badware protection
 
 ## Command
 
@@ -78,6 +124,17 @@ Search for job posting
 ```bash
 br start
 ```
+
+**Options:**
+- `--adblock` - Enable ad blocking
+- `--adblock-base <level>` - Base filter level: `none`, `adsandtrackers`, `full`, or `ads` (default: `adsandtrackers`)
+- `--adblock-lists <urls>` - Comma-separated additional filter list URLs
+
+**Example:**
+```bash
+br start --adblocker
+```
+
 If starting the daemon fails (for example due to missing Playwright browsers),
 the CLI prints the error output so you can diagnose the issue.
 

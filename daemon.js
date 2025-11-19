@@ -101,7 +101,18 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
   if (process.env.BR_ADBLOCK === 'true') {
     await initAdblocker();
   }
-  const context = await chromium.launchPersistentContext(tmpUserDataDir, { headless: false, viewport: null });
+  // Set viewport size for headless mode
+  let viewport = null;
+  if (process.env.BR_HEADLESS === 'true') {
+    const width = parseInt(process.env.BR_VIEWPORT_WIDTH || '1280', 10);
+    const height = parseInt(process.env.BR_VIEWPORT_HEIGHT || '720', 10);
+    viewport = { width, height };
+  }
+  
+  const context = await chromium.launchPersistentContext(tmpUserDataDir, { 
+    headless: process.env.BR_HEADLESS === 'true', 
+    viewport 
+  });
   const browser = await context.browser();
   let pages = [];
   let activePage;
@@ -490,7 +501,7 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
       }
 
       // Navigate to the URL and wait for it to load
-      await page.goto(url, { waitUntil: 'networkidle', timeout: 30000 });
+      await page.goto(url, { timeout: 20000 });
 
       // Wait additional time if specified (default: 1000ms)
       const additionalWait = waitTime ? parseInt(waitTime, 10) : 1000;

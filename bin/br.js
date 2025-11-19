@@ -54,6 +54,8 @@ function send(path, method = 'GET', body) {
 program
   .command('start')
   .description('Start the headless browser daemon process.')
+  .option('--headless', 'Run the browser in headless mode (without a visible GUI)')
+  .option('--viewport <size>', 'Set viewport size for headless mode (e.g., 1920x1080)', '1280x720')
   .option('--adblock', 'Enable ad blocking (blocks ads, trackers, and annoyances)')
   .option('--adblock-base <level>', 'Base filter level: none, adsandtrackers, full, or ads (default: adsandtrackers)')
   .option('--adblock-lists <paths>', 'Comma-separated list of additional filter list URLs or file paths')
@@ -82,6 +84,22 @@ program
 
     // Prepare environment variables for daemon
     const env = { ...process.env };
+    if (opts.headless) {
+      env.BR_HEADLESS = 'true';
+      console.log('Running in headless mode');
+      
+      // Parse viewport size (default: 1280x720)
+      if (opts.viewport) {
+        const [width, height] = opts.viewport.split('x').map(n => parseInt(n, 10));
+        if (isNaN(width) || isNaN(height)) {
+          console.error('Invalid viewport size format. Please use WIDTHxHEIGHT (e.g., 1920x1080)');
+          process.exit(1);
+        }
+        env.BR_VIEWPORT_WIDTH = width.toString();
+        env.BR_VIEWPORT_HEIGHT = height.toString();
+        console.log(`Viewport size: ${width}x${height}`);
+      }
+    }
     if (opts.adblock) {
       env.BR_ADBLOCK = 'true';
       console.log('Ad blocking enabled');

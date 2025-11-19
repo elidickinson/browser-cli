@@ -28,6 +28,7 @@ https://www.npmjs.com/package/@browsemake/browser-cli
 - **AI first**: designed for LLM agent, readable view from HTML, and error hint
 - **Secure**: can be run locally, no credential passed to LLM 
 - **Robust**: browser persisted progress across session, and track history action for replay
+<br />
 
 ## Install
 ```bash
@@ -45,6 +46,20 @@ Use command line directly by human:
 
 ```bash
 br start
+br goto https://github.com/
+```
+
+For headless mode (without a visible browser window):
+
+```bash
+br start --headless
+br goto https://github.com/
+```
+
+For headless mode with custom viewport size:
+
+```bash
+br start --headless --viewport 1920x1080
 br goto https://github.com/
 ```
 
@@ -87,6 +102,16 @@ Search for job posting
 ### Start the daemon
 ```bash
 br start
+```
+
+For headless mode (without a visible browser window):
+```bash
+br start --headless
+```
+
+For headless mode with custom viewport size:
+```bash
+br start --headless --viewport 1920x1080
 ```
 
 If starting the daemon fails (for example due to missing Playwright browsers),
@@ -206,20 +231,34 @@ br tabs
 br switch-tab 1
 ```
 
-### Start daemon with ad blocking
+### Start daemon with options
 
 ```bash
+# Run in headless mode (without a visible GUI)
+br start --headless
+
+# Run in headless mode with custom viewport size (default: 1280x720)
+br start --headless --viewport 1920x1080
+
 # Enable ad blocking (ads + tracking)
 br start --adblock
 
 # Full protection (ads + tracking + annoyances + cookies)
 br start --adblock --adblock-base full
 
+# Combine headless mode with ad blocking
+br start --headless --adblock
+
+# Combine all options
+br start --headless --viewport 1920x1080 --adblock --adblock-base full
+
 # Use custom filter lists only (can be URLs or local files)
 br start --adblock none --adblock-lists https://example.com/list1.txt,/path/to/local-list.txt
 ```
 
 **Options:**
+- `--headless` - Run the browser in headless mode (without a visible GUI)
+- `--viewport <size>` - Set viewport size for headless mode (format: WIDTHxHEIGHT, e.g., 1920x1080) [default: 1280x720]
 - `--adblock` - Enable ad blocking
 - `--adblock-base <level>` - Base filter level: `none`, `adsandtrackers`, `full` (ads + trackers + annoyances + cookies), or `ads` [default: `adsandtrackers`]
 - `--adblock-lists <paths>` - Comma-separated additional filter list URLs or local file paths

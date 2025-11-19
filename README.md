@@ -223,7 +223,13 @@ br screenshot
 
 # Capture the full scrollable page
 br screenshot --full-page
+
+# Save to custom file path
+br screenshot -o my-screenshot.png
+br screenshot --output /tmp/screen.png
 ```
+
+Screenshots are saved with the format `shot-{domain}-{timestamp}.png` by default, or to a custom path if specified with `-o/--output`.
 
 ### View accessibility and DOM tree
 

@@ -294,12 +294,15 @@ program
 
 program
   .command('screenshot')
-  .description('Capture a screenshot of the current page and save it to a temporary file.')
+  .description('Capture a screenshot of the current page and save it to a file.')
   .option('-f, --full-page', 'Capture the full scrollable page instead of just the viewport')
+  .option('-o, --output <path>', 'Custom file path for the screenshot')
   .action(async (opts) => {
     try {
       const fullPage = opts.fullPage || false;
-      const file = await send(`/screenshot?fullPage=${fullPage}`);
+      const params = new URLSearchParams({ fullPage });
+      if (opts.output) params.append('path', opts.output);
+      const file = await send(`/screenshot?${params}`);
       console.log('Screenshot saved to:', file);
     } catch (error) {
       console.error('Error taking screenshot:', error);

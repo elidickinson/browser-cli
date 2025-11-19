@@ -313,10 +313,21 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      const file = path.join(dir, `shot-${Date.now()}.png`);
+      
+      let file;
+      if (req.query.path) {
+        // Use custom path, resolve relative paths against current directory
+        file = path.resolve(req.query.path);
+      } else {
+        // Generate default filename with domain
+        const url = new URL(getActivePage().url());
+        const domain = url.hostname.replace(/[^a-zA-Z0-9.-]/g, '');
+        file = path.join(dir, `shot-${domain}-${Date.now()}.png`);
+      }
+      
       const fullPage = req.query.fullPage === 'true';
       await getActivePage().screenshot({ path: file, fullPage });
-      record('screenshot', { fullPage });
+      record('screenshot', { fullPage, path: file });
       res.send(file);
     } catch (err) {
       res.status(500).send(err.message);

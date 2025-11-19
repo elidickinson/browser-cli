@@ -80,6 +80,7 @@ Search for job posting
 - **History tracking**: History tracking for replay and scripting
 - **Ad blocking**: Optional ad and tracker blocking with custom filter list support
 - **JavaScript injection**: Execute custom JavaScript code on web pages
+- **HTTP API**: REST API endpoint for taking screenshots programmatically
 
 ## Command
 
@@ -243,6 +244,20 @@ return elements.length;
 ```
 
 The `js` command executes JavaScript code in the context of the current page and returns any value that is explicitly returned from the script.
+
+### HTTP API for Screenshots
+
+The daemon exposes an HTTP endpoint for programmatic screenshot capture:
+
+```bash
+# Basic usage
+curl "http://localhost:3030/api/screenshot?url=https://example.com" -o screenshot.png
+
+# Full page with custom viewport
+curl "http://localhost:3030/api/screenshot?url=https://example.com&width=1920&height=1080&fullPage=true" -o screenshot.png
+```
+
+See [API.md](API.md) for complete API documentation and examples in multiple languages.
 
 ### Stop the daemon
 

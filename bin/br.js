@@ -114,6 +114,25 @@ program
       console.log('Base filter level:', opts.adblockBase);
     }
     if (opts.adblockLists) {
+      // Validate additional filter list files
+      const adblockLists = opts.adblockLists.split(',');
+      let invalidLists = [];
+      
+      for (const list of adblockLists) {
+        const trimmedList = list.trim();
+        // Skip URLs, only validate file paths
+        if (!trimmedList.startsWith('http://') && !trimmedList.startsWith('https://')) {
+          if (!fs.existsSync(trimmedList)) {
+            invalidLists.push(trimmedList);
+          }
+        }
+      }
+      
+      if (invalidLists.length > 0) {
+        console.error(`Error: Filter list file(s) not found: ${invalidLists.join(', ')}`);
+        process.exit(1);
+      }
+      
       env.BR_ADBLOCK_LISTS = opts.adblockLists;
       console.log('Additional filter lists:', opts.adblockLists);
     }

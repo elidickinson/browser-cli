@@ -132,7 +132,8 @@ async function setupAdblocking(page) {
 async function dismissModals(page) {
   const selectors = [
     'button[data-testid="close-welcome-modal"]',
-    '[aria-label="Close dialog"]'
+    '[aria-label="Close dialog"]',
+    '.popup .close-button'
   ].join(', ');
   const maxWaitTime = 2500;
   const startTime = Date.now();
@@ -181,7 +182,7 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
     console.error('Failed to launch browser:', err);
     process.exit(1);
   }
-  
+
   let pages = [];
   let activePage;
 
@@ -215,14 +216,19 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
     }
   });
 
+  let shuttingDown = false;
+
   context.on('close', () => {
-    // Handle context close if necessary, e.g., clean up resources
-    console.log('Browser context closed. This may cause subsequent requests to fail.');
+    if (!shuttingDown) {
+      console.log('Browser context closed. This may cause subsequent requests to fail.');
+    }
   });
 
   browser.on('disconnected', () => {
-    console.log('Browser disconnected. Exiting daemon.');
-    process.exit(0);
+    if (!shuttingDown) {
+      console.log('Browser disconnected. Exiting daemon.');
+      process.exit(0);
+    }
   });
 
   // Listen for page close events
@@ -698,13 +704,14 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
   });
 
   async function shutdown() {
+    shuttingDown = true;
     await context.close();
     process.exit(0);
   }
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
-  
+
   process.on('uncaughtException', (err) => {
     if (err.code === 'EPIPE') {
       // Silently ignore EPIPE errors from closed stdout

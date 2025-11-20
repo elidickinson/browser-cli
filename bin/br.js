@@ -59,6 +59,7 @@ program
   .option('--adblock', 'Enable ad blocking (blocks ads, trackers, and annoyances)')
   .option('--adblock-base <level>', 'Base filter level: none, adsandtrackers, full, or ads (default: adsandtrackers)')
   .option('--adblock-lists <paths>', 'Comma-separated list of additional filter list URLs or file paths')
+  .option('--foreground', 'Run daemon in foreground (attached to terminal, not detached)')
   .action(async (opts) => {
     const pid = getRunningPid();
     if (pid) {
@@ -113,43 +114,62 @@ program
       console.log('Additional filter lists:', opts.adblockLists);
     }
 
-    const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {
-      detached: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env
-    });
+    if (opts.foreground) {
+      // Run in foreground - don't detach, inherit stdio
+      console.log('Starting daemon in foreground mode...');
+      const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {
+        detached: false,
+        stdio: 'inherit',
+        env
+      });
 
-    let stdout = '';
-    let stderr = '';
+      child.on('exit', code => {
+        if (code !== 0) {
+          console.error(`Daemon exited with code ${code}.`);
+          process.exit(code);
+        }
+      });
 
-    const timeout = setTimeout(() => {
-      console.error('Daemon failed to start in a timely manner.');
-      if (stderr.trim()) console.error('Error output:\n', stderr.trim());
-      process.exit(1);
-    }, 5000);
+    } else {
+      // Run in background - detached mode
+      const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {
+        detached: true,
+        stdio: ['pipe', 'pipe', 'pipe'],
+        env
+      });
 
-    child.stdout.on('data', data => {
-      stdout += data.toString();
-      if (stdout.includes('br daemon running')) {
+      let stdout = '';
+      let stderr = '';
+
+      const timeout = setTimeout(() => {
+        console.error('Daemon failed to start in a timely manner.');
+        if (stderr.trim()) console.error('Error output:\n', stderr.trim());
+        process.exit(1);
+      }, 5000);
+
+      child.stdout.on('data', data => {
+        stdout += data.toString();
+        if (stdout.includes('br daemon running')) {
+          clearTimeout(timeout);
+          fs.writeFileSync(PID_FILE, String(child.pid));
+          child.unref();
+          console.log('Daemon started successfully.');
+          process.exit(0);
+        }
+      });
+
+      child.stderr.on('data', data => {
+        stderr += data.toString();
+      });
+
+      child.on('exit', code => {
+        if (stdout.includes('br daemon running')) return;
         clearTimeout(timeout);
-        fs.writeFileSync(PID_FILE, String(child.pid));
-        child.unref();
-        console.log('Daemon started successfully.');
-        process.exit(0);
-      }
-    });
-
-    child.stderr.on('data', data => {
-      stderr += data.toString();
-    });
-
-    child.on('exit', code => {
-      if (stdout.includes('br daemon running')) return;
-      clearTimeout(timeout);
-      console.error(`Daemon exited unexpectedly with code ${code}.`);
-      if (stderr.trim()) console.error('Error output:\n', stderr.trim());
-      process.exit(1);
-    });
+        console.error(`Daemon exited unexpectedly with code ${code}.`);
+        if (stderr.trim()) console.error('Error output:\n', stderr.trim());
+        process.exit(1);
+      });
+    }
   });
 
 program

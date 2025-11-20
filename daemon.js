@@ -170,18 +170,31 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
     viewport = { width, height };
   }
 
-  const context = await chromium.launchPersistentContext(tmpUserDataDir, {
-    headless: process.env.BR_HEADLESS === 'true',
-    viewport
-  });
-  const browser = await context.browser();
+  let context, browser;
+  try {
+    context = await chromium.launchPersistentContext(tmpUserDataDir, {
+      headless: process.env.BR_HEADLESS === 'true',
+      viewport
+    });
+    browser = await context.browser();
+  } catch (err) {
+    console.error('Failed to launch browser:', err);
+    process.exit(1);
+  }
+  
   let pages = [];
   let activePage;
 
-  const initialPage = await context.newPage();
-  pages.push(initialPage);
-  activePage = initialPage;
-  await setupAdblocking(initialPage);
+  try {
+    const initialPage = await context.newPage();
+    pages.push(initialPage);
+    activePage = initialPage;
+    await setupAdblocking(initialPage);
+  } catch (err) {
+    console.error('Failed to create initial page:', err);
+    await context.close();
+    process.exit(1);
+  }
 
   function getActivePage() {
     return activePage;
@@ -204,7 +217,7 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
 
   context.on('close', () => {
     // Handle context close if necessary, e.g., clean up resources
-    console.log('Browser context closed.');
+    console.log('Browser context closed. This may cause subsequent requests to fail.');
   });
 
   browser.on('disconnected', () => {
@@ -266,7 +279,10 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
     const { url } = req.body;
     if (!url) return res.status(400).send('missing url');
     try {
-      await getActivePage().goto(url);
+      await getActivePage().goto(url, {
+        timeout: 30000,
+        waitUntil: 'domcontentloaded'
+      });
       record('goto', { url });
       res.send('ok');
     } catch (err) {

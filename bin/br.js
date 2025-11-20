@@ -21,12 +21,15 @@ function getRunningPid() {
 function send(path, method = 'GET', body) {
   return new Promise((resolve, reject) => {
     const data = body ? JSON.stringify(body) : null;
+    const headers = data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {};
+    headers['Connection'] = 'close';
+
     const req = http.request({
       hostname: 'localhost',
       port: PORT,
       path,
       method,
-      headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}
+      headers
     }, (res) => {
       let out = '';
       res.on('data', chunk => out += chunk);
@@ -44,6 +47,7 @@ function send(path, method = 'GET', body) {
       } else {
         console.log('Unknown error, try start the daemon with "br start":');
         console.error(e);
+        reject(e);
       }
     });
     if (data) req.write(data);
@@ -134,41 +138,31 @@ program
       // Run in background - detached mode
       const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {
         detached: true,
-        stdio: ['pipe', 'pipe', 'pipe'],
+        stdio: 'ignore',
         env
       });
 
-      let stdout = '';
-      let stderr = '';
+      child.unref();
+      fs.writeFileSync(PID_FILE, String(child.pid));
 
-      const timeout = setTimeout(() => {
-        console.error('Daemon failed to start in a timely manner.');
-        if (stderr.trim()) console.error('Error output:\n', stderr.trim());
-        process.exit(1);
-      }, 5000);
+      // Poll health endpoint to confirm daemon is ready
+      const startTime = Date.now();
+      const checkHealth = async () => {
+        if (Date.now() - startTime > 5000) {
+          console.error('Daemon failed to start in a timely manner.');
+          process.exit(1);
+        }
 
-      child.stdout.on('data', data => {
-        stdout += data.toString();
-        if (stdout.includes('br daemon running')) {
-          clearTimeout(timeout);
-          fs.writeFileSync(PID_FILE, String(child.pid));
-          child.unref();
+        try {
+          await send('/health');
           console.log('Daemon started successfully.');
           process.exit(0);
+        } catch (err) {
+          setTimeout(checkHealth, 100);
         }
-      });
+      };
 
-      child.stderr.on('data', data => {
-        stderr += data.toString();
-      });
-
-      child.on('exit', code => {
-        if (stdout.includes('br daemon running')) return;
-        clearTimeout(timeout);
-        console.error(`Daemon exited unexpectedly with code ${code}.`);
-        if (stderr.trim()) console.error('Error output:\n', stderr.trim());
-        process.exit(1);
-      });
+      setTimeout(checkHealth, 100);
     }
   });
 

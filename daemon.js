@@ -130,32 +130,24 @@ async function setupAdblocking(page) {
 
 // Automatically dismisses modals and other UI elements
 async function dismissModals(page) {
-  try {
-    // Check if welcome modal close button exists
-    const closeButton = await page.$('button[data-testid="close-welcome-modal"]');
-    if (closeButton) {
-      await closeButton.click();
-      console.log('Closed welcome modal automatically');
-      // Wait a moment to ensure the modal is fully dismissed
-      await page.waitForTimeout(2500);
-      // Verify it's gone
-      const stillVisible = await page.isVisible('button[data-testid="close-welcome-modal"]').catch(() => false);
-      if (!stillVisible) {
-        console.log('Welcome modal successfully dismissed');
-      }
+  const selectors = [
+    'button[data-testid="close-welcome-modal"]',
+    '[aria-label="Close dialog"]'
+  ].join(', ');
+  const maxWaitTime = 2500;
+  const startTime = Date.now();
+
+  while (Date.now() - startTime < maxWaitTime) {
+    const closeButton = await page.$(selectors);
+    if (!closeButton) {
+      break;
     }
 
-    // You can add more automatic UI rules here in the future
-    // Example:
-    // const cookieNotice = await page.$('.cookie-notice button.accept');
-    // if (cookieNotice) {
-    //   await cookieNotice.click();
-    //   await page.waitForTimeout(500);
-    // }
+    if (await closeButton.isVisible().catch(() => false)) {
+      await closeButton.click().catch(() => {});
+    }
 
-  } catch (error) {
-    // Silently fail if button is not clickable or page navigates away
-    console.debug('Could not dismiss modal:', error.message);
+    await page.waitForTimeout(200);
   }
 }
 

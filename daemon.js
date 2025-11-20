@@ -688,6 +688,15 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
 
   process.on('SIGINT', shutdown);
   process.on('SIGTERM', shutdown);
+  
+  process.on('uncaughtException', (err) => {
+    if (err.code === 'EPIPE') {
+      // Silently ignore EPIPE errors from closed stdout
+      return;
+    }
+    console.error('Uncaught Exception:', err);
+    process.exit(1);
+  });
 })().catch(err => {
   console.error('daemon error:', err);
   process.exit(1);

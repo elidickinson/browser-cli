@@ -133,7 +133,10 @@ async function dismissModals(page) {
   const selectors = [
     'button[data-testid="close-welcome-modal"]',
     '[aria-label="Close dialog"]',
-    '.popup .close-button'
+    '.popup .close-button',
+    'div[role="dialog"] .close-btn',
+    'div[role="dialog"] .close-button',
+    'div[role="dialog"] button.close'
   ].join(', ');
   const maxWaitTime = 2500;
   const startTime = Date.now();

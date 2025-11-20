@@ -313,7 +313,7 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
       if (!fs.existsSync(dir)) {
         fs.mkdirSync(dir, { recursive: true });
       }
-      
+
       let file;
       if (req.query.path) {
         // Use custom path, resolve relative paths against current directory
@@ -324,11 +324,25 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
         const domain = url.hostname.replace(/[^a-zA-Z0-9.-]/g, '');
         file = path.join(dir, `shot-${domain}-${Date.now()}.png`);
       }
-      
+
       const fullPage = req.query.fullPage === 'true';
-      await getActivePage().screenshot({ path: file, fullPage });
-      record('screenshot', { fullPage, path: file });
-      res.send(file);
+
+      try {
+        await getActivePage().screenshot({ path: file, fullPage });
+        record('screenshot', { fullPage, path: file });
+        res.send(file);
+      } catch (screenshotErr) {
+        // Check if the error is due to WebP size limitations
+        if (screenshotErr.message && screenshotErr.message.includes('WebP')) {
+          // Fall back to PNG format
+          const pngFile = file.replace(/\.webp$/i, '.png');
+          await getActivePage().screenshot({ path: pngFile, fullPage });
+          record('screenshot', { fullPage, path: pngFile, fallbackFromWebP: true });
+          res.send(pngFile);
+        } else {
+          throw screenshotErr;
+        }
+      }
     } catch (err) {
       res.status(500).send(err.message);
     }

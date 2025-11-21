@@ -140,6 +140,9 @@ async function dismissModals(page) {
     '[aria-label="Close dialog"]',
     '[aria-label="Close"]',
     '[aria-label="button.close"]',
+    '[aria-modal="true"] [aria-label="Close"]',
+    '[aria-modal="true"] [title="Close"]',
+    '[aria-modal="true"] [data-action="close"]',
     '.popup .close-button',
     '.modal .close',
     '[role="dialog"] .close-btn',
@@ -627,9 +630,6 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
       // Wait for challenge pages to complete before screenshotting
       await waitForChallengeBypass(page);
 
-      // dismiss any modals not caught by adblock
-      await dismissModals(getActivePage());
-
       // Add style to hide scrollbars for cleaner screenshots
       await page.addStyleTag({
         content: `
@@ -647,6 +647,9 @@ If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
       // Wait additional time if specified (default: 1000ms)
       const additionalWait = waitTime ? parseInt(waitTime, 10) : 1000;
       await page.waitForTimeout(additionalWait);
+
+      // dismiss any modals not caught by adblock
+      await dismissModals(getActivePage());
 
       // Take screenshot to buffer
       const isFullPage = !height; // Full page if height not provided

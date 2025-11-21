@@ -130,13 +130,22 @@ async function setupAdblocking(page) {
 
 // Automatically dismisses modals and other UI elements
 async function dismissModals(page) {
+
+  // blind fire an Escape keypress
+  await page.keyboard.press('Escape');
+
+  // look for close buttons to press
   const selectors = [
-    'button[data-testid="close-welcome-modal"]',
+    '[data-dismiss="modal"]',  // bootstrap
     '[aria-label="Close dialog"]',
+    '[aria-label="Close"]',
+    '[aria-label="button.close"]',
     '.popup .close-button',
-    'div[role="dialog"] .close-btn',
-    'div[role="dialog"] .close-button',
-    'div[role="dialog"] button.close'
+    '.modal .close',
+    '[role="dialog"] .close-btn',
+    '[role="dialog"] .close-button',
+    '[role="dialog"] .close',
+    'button[data-testid="close-welcome-modal"]'
   ].join(', ');
   const maxWaitTime = 2500;
   const startTime = Date.now();

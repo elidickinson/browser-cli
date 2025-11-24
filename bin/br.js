@@ -117,7 +117,7 @@ program
       // Validate additional filter list files
       const adblockLists = opts.adblockLists.split(',');
       let invalidLists = [];
-      
+
       for (const list of adblockLists) {
         const trimmedList = list.trim();
         // Skip URLs, only validate file paths
@@ -127,12 +127,12 @@ program
           }
         }
       }
-      
+
       if (invalidLists.length > 0) {
         console.error(`Error: Filter list file(s) not found: ${invalidLists.join(', ')}`);
         process.exit(1);
       }
-      
+
       env.BR_ADBLOCK_LISTS = opts.adblockLists;
       console.log('Additional filter lists:', opts.adblockLists);
     }
@@ -194,13 +194,9 @@ program
       console.log('Daemon is not running.');
       return;
     }
-    try {
-      process.kill(pid);
-      fs.unlinkSync(PID_FILE);
-      console.log('Daemon stopped.');
-    } catch (err) {
-      console.error('Failed to stop daemon:', err.message);
-    }
+    process.kill(pid);
+    fs.unlinkSync(PID_FILE);
+    console.log('Daemon stopped.');
   });
 
 program
@@ -208,16 +204,12 @@ program
   .description('Navigate the browser to a specific URL.')
   .argument('<url>', 'The full URL to navigate to (e.g., "https://example.com").')
   .action(async (url) => {
-    try {
-      // Auto-add https:// if no protocol is specified
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'https://' + url;
-      }
-      await send('/goto', 'POST', { url });
-      console.log('Navigated to', url);
-    } catch (error) {
-      console.error('Error navigating:', error);
+    // Auto-add https:// if no protocol is specified
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://' + url;
     }
+    await send('/goto', 'POST', { url });
+    console.log('Navigated to', url);
   });
 
 program
@@ -225,12 +217,8 @@ program
   .description('Scroll the page until a specific element is in view.')
   .argument('<selectorOrId>', 'The CSS selector or node ID for the target element.')
   .action(async (selector) => {
-    try {
-      await send('/scroll-into-view', 'POST', { selector });
-      console.log('Scrolled', selector, 'into view.');
-    } catch (error) {
-      console.error('Error scrolling into view:', error);
-    }
+    await send('/scroll-into-view', 'POST', { selector });
+    console.log('Scrolled', selector, 'into view.');
   });
 
 program
@@ -238,12 +226,8 @@ program
   .description('Scroll the page to a given percentage of its total height.')
   .argument('<percentage>', 'A number from 0 to 100.')
   .action(async (percentage) => {
-    try {
-      await send('/scroll-to', 'POST', { percentage });
-      console.log(`Scrolled to ${percentage}%.`);
-    } catch (error) {
-      console.error('Error scrolling:', error);
-    }
+    await send('/scroll-to', 'POST', { percentage });
+    console.log(`Scrolled to ${percentage}%.`);
   });
 
 program
@@ -252,12 +236,8 @@ program
   .argument('<selectorOrId>', 'The CSS selector or node ID for the input field.')
   .argument('<text>', 'The text to fill the field with.')
   .action(async (selector, text) => {
-    try {
-      await send('/fill', 'POST', { selector, text });
-      console.log('Filled', selector);
-    } catch (error) {
-      console.error('Error filling field:', error);
-    }
+    await send('/fill', 'POST', { selector, text });
+    console.log('Filled', selector);
   });
 
 program
@@ -271,12 +251,8 @@ program
       console.error(`Error: Environment variable "${envVar}" is not set.`);
       return;
     }
-    try {
-      await send('/fill-secret', 'POST', { selector, secret });
-      console.log('Filled secret value into', selector);
-    } catch (error) {
-      console.error('Error filling secret field:', error);
-    }
+    await send('/fill-secret', 'POST', { selector, secret });
+    console.log('Filled secret value into', selector);
   });
 
 program
@@ -285,12 +261,8 @@ program
   .argument('<selectorOrId>', 'The CSS selector or node ID for the input field.')
   .argument('<text>', 'The text to type into the field.')
   .action(async (selector, text) => {
-    try {
-      await send('/type', 'POST', { selector, text });
-      console.log('Typed text into', selector);
-    } catch (error) {
-      console.error('Error typing into field:', error);
-    }
+    await send('/type', 'POST', { selector, text });
+    console.log('Typed text into', selector);
   });
 
 program
@@ -298,36 +270,24 @@ program
   .description("Simulate a single key press (e.g., 'Enter', 'Tab').")
   .argument('<key>', "The key to press, as defined in Playwright's documentation.")
   .action(async (key) => {
-    try {
-      await send('/press', 'POST', { key });
-      console.log('Pressed', key);
-    } catch (error) {
-      console.error('Error pressing key:', error);
-    }
+    await send('/press', 'POST', { key });
+    console.log('Pressed', key);
   });
 
 program
   .command('nextChunk')
   .description('Scroll down by one viewport height to view the next chunk of content.')
   .action(async () => {
-    try {
-      await send('/next-chunk', 'POST');
-      console.log('Scrolled to the next chunk.');
-    } catch (error) {
-      console.error('Error scrolling to next chunk:', error);
-    }
+    await send('/next-chunk', 'POST');
+    console.log('Scrolled to the next chunk.');
   });
 
 program
   .command('prevChunk')
   .description('Scroll up by one viewport height to view the previous chunk of content.')
   .action(async () => {
-    try {
-      await send('/prev-chunk', 'POST');
-      console.log('Scrolled to the previous chunk.');
-    } catch (error) {
-      console.error('Error scrolling to previous chunk:', error);
-    }
+    await send('/prev-chunk', 'POST');
+    console.log('Scrolled to the previous chunk.');
   });
 
 program
@@ -335,12 +295,8 @@ program
   .description('Click an element matching the specified CSS selector.')
   .argument('<selectorOrId>', 'The CSS selector or node ID for the element to click.')
   .action(async (selector) => {
-    try {
-      await send('/click', 'POST', { selector });
-      console.log('Clicked', selector);
-    } catch (error) {
-      console.error('Error clicking element:', error);
-    }
+    await send('/click', 'POST', { selector });
+    console.log('Clicked', selector);
   });
 
 program
@@ -349,15 +305,11 @@ program
   .option('-f, --full-page', 'Capture the full scrollable page instead of just the viewport')
   .option('-o, --output <path>', 'Custom file path for the screenshot')
   .action(async (opts) => {
-    try {
-      const fullPage = opts.fullPage || false;
-      const params = new URLSearchParams({ fullPage });
-      if (opts.output) params.append('path', opts.output);
-      const file = await send(`/screenshot?${params}`);
-      console.log('Screenshot saved to:', file);
-    } catch (error) {
-      console.error('Error taking screenshot:', error);
-    }
+    const fullPage = opts.fullPage || false;
+    const params = new URLSearchParams({ fullPage });
+    if (opts.output) params.append('path', opts.output);
+    const file = await send(`/screenshot?${params}`);
+    console.log('Screenshot saved to:', file);
   });
 
 program
@@ -365,28 +317,24 @@ program
   .description('Output the full HTML source of the current page (paginated, 5000 chars per page).')
   .option('-p, --page <number>', 'Page number to view', '1')
   .action(async (opts) => {
-    try {
-      const page = Number(opts.page) || 1;
-      const html = await send(`/html?page=${page}`);
-      if (html.length === 0) {
-        console.log('No HTML content found for this page.');
-        return;
-      }
-      const PAGE_SIZE = 5000;
-      const totalPages = Math.ceil(html.length / PAGE_SIZE);
-      const start = (page - 1) * PAGE_SIZE;
-      const end = start + PAGE_SIZE;
-      const chunk = html.slice(start, end);
-      console.log(chunk);
-      console.log(`\n--- Page ${page} of ${totalPages} ---`);
-      if (totalPages > 1) {
-        console.log('Use --page <n> to view a different page.');
-      }
-      if (html.length > PAGE_SIZE) {
-        console.log('Hint: If the HTML is too large to view comfortably, try the "view-tree" command for a structured overview.');
-      }
-    } catch (error) {
-      console.error('Error viewing HTML:', error);
+    const page = Number(opts.page) || 1;
+    const html = await send(`/html?page=${page}`);
+    if (html.length === 0) {
+      console.log('No HTML content found for this page.');
+      return;
+    }
+    const PAGE_SIZE = 5000;
+    const totalPages = Math.ceil(html.length / PAGE_SIZE);
+    const start = (page - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    const chunk = html.slice(start, end);
+    console.log(chunk);
+    console.log(`\n--- Page ${page} of ${totalPages} ---`);
+    if (totalPages > 1) {
+      console.log('Use --page <n> to view a different page.');
+    }
+    if (html.length > PAGE_SIZE) {
+      console.log('Hint: If the HTML is too large to view comfortably, try the "view-tree" command for a structured overview.');
     }
   });
 
@@ -395,50 +343,34 @@ program
   .alias('hist')
   .description('Display the history of actions performed in the current session.')
   .action(async () => {
-    try {
-      const hist = await send('/history');
-      console.log(hist);
-    } catch (error) {
-      console.error('Error viewing history:', error);
-    }
+    const hist = await send('/history');
+    console.log(hist);
   });
 
 program
   .command('clear-history')
   .description("Clear the session's action history.")
   .action(async () => {
-    try {
-      await send('/history/clear', 'POST');
-      console.log('History cleared.');
-    } catch (error) {
-      console.error('Error clearing history:', error);
-    }
+    await send('/history/clear', 'POST');
+    console.log('History cleared.');
   });
 
 program
   .command('view-tree')
   .description("Display a hierarchical tree of the page's accessibility and DOM nodes.")
   .action(async () => {
-    try {
-      const tree = await send('/tree');
-      console.log(tree);
-    } catch (error) {
-      console.error('Error viewing tree:', error);
-    }
+    const tree = await send('/tree');
+    console.log(tree);
   });
 
 program
   .command('tabs')
   .description('List all open tabs (pages) in the browser daemon.')
   .action(async () => {
-    try {
-      const tabs = JSON.parse(await send('/tabs'));
-      tabs.forEach(tab => {
-        console.log(`${tab.isActive ? '*' : ' '}${tab.index}: ${tab.title} (${tab.url})`);
-      });
-    } catch (error) {
-      console.error('Error listing tabs:', error);
-    }
+    const tabs = JSON.parse(await send('/tabs'));
+    tabs.forEach(tab => {
+      console.log(`${tab.isActive ? '*' : ' '}${tab.index}: ${tab.title} (${tab.url})`);
+    });
   });
 
 program
@@ -446,12 +378,8 @@ program
   .description('Switch to a different open tab by its index.')
   .argument('<index>', 'The index of the tab to switch to.')
   .action(async (index) => {
-    try {
-      await send('/tabs/switch', 'POST', { index: Number(index) });
-      console.log('Switched to tab', index);
-    } catch (error) {
-      console.error('Error switching tab:', error);
-    }
+    await send('/tabs/switch', 'POST', { index: Number(index) });
+    console.log('Switched to tab', index);
   });
 
 program
@@ -460,38 +388,34 @@ program
   .argument('[script]', 'JavaScript code to execute (if not using --file).')
   .option('-f, --file <path>', 'Path to a JavaScript file to execute.')
   .action(async (script, opts) => {
-    try {
-      let scriptToRun = script;
+    let scriptToRun = script;
 
-      if (opts.file) {
-        // Read JavaScript from file
-        if (!fs.existsSync(opts.file)) {
-          console.error(`Error: File not found: ${opts.file}`);
-          return;
-        }
-        scriptToRun = fs.readFileSync(opts.file, 'utf8');
-      }
-
-      if (!scriptToRun) {
-        console.error('Error: No script provided. Use either a script argument or --file option.');
+    if (opts.file) {
+      // Read JavaScript from file
+      if (!fs.existsSync(opts.file)) {
+        console.error(`Error: File not found: ${opts.file}`);
         return;
       }
+      scriptToRun = fs.readFileSync(opts.file, 'utf8');
+    }
 
-      const response = await send('/eval', 'POST', { script: scriptToRun });
-      const { result } = JSON.parse(response);
+    if (!scriptToRun) {
+      console.error('Error: No script provided. Use either a script argument or --file option.');
+      return;
+    }
 
-      // Pretty print the result
-      if (result === undefined) {
-        console.log('undefined');
-      } else if (result === null) {
-        console.log('null');
-      } else if (typeof result === 'object') {
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        console.log(result);
-      }
-    } catch (error) {
-      console.error('Error executing script:', error);
+    const response = await send('/eval', 'POST', { script: scriptToRun });
+    const { result } = JSON.parse(response);
+
+    // Pretty print the result
+    if (result === undefined) {
+      console.log('undefined');
+    } else if (result === null) {
+      console.log('null');
+    } else if (typeof result === 'object') {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(result);
     }
   });
 

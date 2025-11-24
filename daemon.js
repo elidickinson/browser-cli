@@ -16,67 +16,58 @@ async function initAdblocker() {
   const { PlaywrightBlocker } = require('@ghostery/adblocker-playwright');
   const fetch = require('cross-fetch');
 
-  try {
-    const base = process.env.BR_ADBLOCK_BASE || 'adsandtrackers';
-    const additionalLists = process.env.BR_ADBLOCK_LISTS;
+  const base = process.env.BR_ADBLOCK_BASE || 'adsandtrackers';
+  const additionalLists = process.env.BR_ADBLOCK_LISTS;
 
-    // Get base blocker
-    let blocker;
-    switch (base) {
-      case 'none':
-        blocker = PlaywrightBlocker.empty();
-        console.log('Ad blocking enabled (no base filters)');
-        break;
-      case 'full':
-        blocker = await PlaywrightBlocker.fromPrebuiltFull(fetch);
-        console.log('Ad blocking enabled (full: ads + tracking + annoyances + cookies)');
-        break;
-      case 'ads':
-        blocker = await PlaywrightBlocker.fromPrebuiltAdsOnly(fetch);
-        console.log('Ad blocking enabled (ads only)');
-        break;
-      case 'adsandtrackers':
-      default:
-        blocker = await PlaywrightBlocker.fromPrebuiltAdsAndTracking(fetch);
-        console.log('Ad blocking enabled (ads + tracking)');
-        break;
-    }
-
-    // Add additional lists if specified
-    if (additionalLists) {
-      const customLists = additionalLists.split(',').map(s => s.trim());
-
-      for (const listPath of customLists) {
-        try {
-          let listContent;
-          if (listPath.startsWith('http://') || listPath.startsWith('https://')) {
-            const response = await fetch(listPath);
-            listContent = await response.text();
-          } else {
-            listContent = fs.readFileSync(listPath, 'utf8');
-          }
-
-          const filters = listContent
-            .split('\n')
-            .map(line => line.trim())
-            .filter(line => line.length > 0 && !line.startsWith('!'));
-
-          console.log(`Loaded ${listContent.split('\n').length} lines (${filters.length} active rules) from ${listPath}`);
-
-          blocker.updateFromDiff({ added: filters });
-
-          console.log(`Successfully applied custom list ${listPath}`);
-        } catch (err) {
-          console.warn(`Failed to load custom list ${listPath}:`, err.message);
-        }
-      }
-    }
-
-    adblocker = blocker;
-
-  } catch (err) {
-    console.error('Failed to initialize adblocker:', err);
+  // Get base blocker
+  let blocker;
+  switch (base) {
+    case 'none':
+      blocker = PlaywrightBlocker.empty();
+      console.log('Ad blocking enabled (no base filters)');
+      break;
+    case 'full':
+      blocker = await PlaywrightBlocker.fromPrebuiltFull(fetch);
+      console.log('Ad blocking enabled (full: ads + tracking + annoyances + cookies)');
+      break;
+    case 'ads':
+      blocker = await PlaywrightBlocker.fromPrebuiltAdsOnly(fetch);
+      console.log('Ad blocking enabled (ads only)');
+      break;
+    case 'adsandtrackers':
+    default:
+      blocker = await PlaywrightBlocker.fromPrebuiltAdsAndTracking(fetch);
+      console.log('Ad blocking enabled (ads + tracking)');
+      break;
   }
+
+  // Add additional lists if specified
+  if (additionalLists) {
+    const customLists = additionalLists.split(',').map(s => s.trim());
+
+    for (const listPath of customLists) {
+      let listContent;
+      if (listPath.startsWith('http://') || listPath.startsWith('https://')) {
+        const response = await fetch(listPath);
+        listContent = await response.text();
+      } else {
+        listContent = fs.readFileSync(listPath, 'utf8');
+      }
+
+      const filters = listContent
+        .split('\n')
+        .map(line => line.trim())
+        .filter(line => line.length > 0 && !line.startsWith('!'));
+
+      console.log(`Loaded ${listContent.split('\n').length} lines (${filters.length} active rules) from ${listPath}`);
+
+      blocker.updateFromDiff({ added: filters });
+
+      console.log(`Successfully applied custom list ${listPath}`);
+    }
+  }
+
+  adblocker = blocker;
 }
 
 let lastIdToXPath = {}; // Global variable to store the last idToXPath mapping
@@ -145,6 +136,7 @@ async function dismissModals(page) {
     '[aria-modal="true"] [data-action="close"]',
     '.popup .close-button',
     '.modal .close',
+    'a.close-popup',
     '[role="dialog"] .close-btn',
     '[role="dialog"] .close-button',
     '[role="dialog"] .close',
@@ -163,7 +155,7 @@ async function dismissModals(page) {
       await closeButton.click().catch(() => {});
     }
 
-    await page.waitForTimeout(200);
+    await page.waitForTimeout(500);
   }
 }
 
@@ -187,30 +179,19 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
   }
 
   let context, browser;
-  try {
-    context = await chromium.launchPersistentContext(tmpUserDataDir, {
-      headless: process.env.BR_HEADLESS === 'true',
-      viewport
-    });
-    browser = await context.browser();
-  } catch (err) {
-    console.error('Failed to launch browser:', err);
-    process.exit(1);
-  }
+  context = await chromium.launchPersistentContext(tmpUserDataDir, {
+    headless: process.env.BR_HEADLESS === 'true',
+    viewport
+  });
+  browser = await context.browser();
 
   let pages = [];
   let activePage;
 
-  try {
-    const initialPage = await context.newPage();
-    pages.push(initialPage);
-    activePage = initialPage;
-    await setupAdblocking(initialPage);
-  } catch (err) {
-    console.error('Failed to create initial page:', err);
-    await context.close();
-    process.exit(1);
-  }
+  const initialPage = await context.newPage();
+  pages.push(initialPage);
+  activePage = initialPage;
+  await setupAdblocking(initialPage);
 
   function getActivePage() {
     return activePage;

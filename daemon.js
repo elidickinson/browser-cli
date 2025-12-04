@@ -140,7 +140,9 @@ async function dismissModals(page) {
     '[role="dialog"] .close-btn',
     '[role="dialog"] .close-button',
     '[role="dialog"] .close',
-    'button[data-testid="close-welcome-modal"]'
+    '[role="dialog"] [aria-label="Close"]',
+    'button[data-testid="close-welcome-modal"]',
+    'button.spu-close-popup'
   ].join(', ');
   const maxWaitTime = 2500;
   const startTime = Date.now();

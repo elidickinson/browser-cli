@@ -55,6 +55,17 @@ function send(path, method = 'GET', body) {
   });
 }
 
+// Check daemon status for help display
+function getDaemonStatus() {
+  const pid = getRunningPid();
+  return pid ? `running (PID: ${pid})` : 'not running';
+}
+
+// Customize help to show daemon status
+program.addHelpText('before', () => {
+  return `\nDaemon status: ${getDaemonStatus()}\n`;
+});
+
 program
   .command('start')
   .description('Start the headless browser daemon process.')

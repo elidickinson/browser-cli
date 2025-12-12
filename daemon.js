@@ -142,7 +142,8 @@ async function dismissModals(page) {
     '[role="dialog"] .close',
     '[role="dialog"] [aria-label="Close"]',
     'button[data-testid="close-welcome-modal"]',
-    'button.spu-close-popup'
+    'button.spu-close-popup',
+    '#campaign_modal_wrapper #continue_to_site'
   ].join(', ');
   const maxWaitTime = 2500;
   const startTime = Date.now();
@@ -299,22 +300,36 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
     if (!selector) return res.status(400).send('missing selector');
 
     try {
+      let element;
+      let actualSelector = selector;
+
+      // Handle numeric IDs from view-tree
       if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
         const xpath = lastIdToXPath[selector];
         if (!xpath) return res.status(400).send('XPath not found for ID');
-        selector = xpath;
+        element = await getActivePage().$(xpath);
+        actualSelector = xpath; // Use XPath for action
+      } else {
+        // Handle CSS selectors and XPath expressions
+        if (selector.startsWith('xpath=')) {
+          // XPath expression
+          element = await getActivePage().$(selector);
+        } else {
+          // CSS selector
+          element = await getActivePage().$(selector);
+        }
       }
-      const element = await getActivePage().$('xpath=' + selector);
+
       if (!element) {
         return res.status(400).send(`Element not found for selector: ${selector}`);
       }
-      await actionFn(selector);
+      await actionFn(actualSelector);
       record(recordAction, { selector, ...recordArgs });
       res.send('ok');
     } catch (err) {
       res.status(500).send(`Error when action: ${err.message}
 
-If you want to use ID instead of XPath, use 60 instead of #60 or [60]`);
+Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs from view-tree`);
     }
   }
 

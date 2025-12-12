@@ -55,6 +55,17 @@ function send(path, method = 'GET', body) {
   });
 }
 
+function asyncAction(fn) {
+  return async (...args) => {
+    try {
+      await fn(...args);
+    } catch (err) {
+      console.error('Error:', err);
+      process.exit(1);
+    }
+  };
+}
+
 // Check daemon status for help display
 function getDaemonStatus() {
   const pid = getRunningPid();
@@ -226,89 +237,89 @@ program
 program
   .command('scrollIntoView')
   .description('Scroll the page until a specific element is in view.')
-  .argument('<selectorOrId>', 'The CSS selector or node ID for the target element.')
-  .action(async (selector) => {
+  .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
+  .action(asyncAction(async (selector) => {
     await send('/scroll-into-view', 'POST', { selector });
     console.log('Scrolled', selector, 'into view.');
-  });
+  }));
 
 program
   .command('scrollTo')
   .description('Scroll the page to a given percentage of its total height.')
   .argument('<percentage>', 'A number from 0 to 100.')
-  .action(async (percentage) => {
+  .action(asyncAction(async (percentage) => {
     await send('/scroll-to', 'POST', { percentage });
     console.log(`Scrolled to ${percentage}%.`);
-  });
+  }));
 
 program
   .command('fill')
   .description('Fill a form field with the provided text.')
-  .argument('<selectorOrId>', 'The CSS selector or node ID for the input field.')
+  .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
   .argument('<text>', 'The text to fill the field with.')
-  .action(async (selector, text) => {
+  .action(asyncAction(async (selector, text) => {
     await send('/fill', 'POST', { selector, text });
     console.log('Filled', selector);
-  });
+  }));
 
 program
   .command('fill-secret')
   .description('Fill a form field with a value from a specified environment variable. The value is masked in logs.')
-  .argument('<selectorOrId>', 'The CSS selector or node ID for the input field.')
+  .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
   .argument('<envVar>', 'The name of the environment variable containing the secret.')
-  .action(async (selector, envVar) => {
+  .action(asyncAction(async (selector, envVar) => {
     const secret = process.env[envVar];
     if (!secret) {
       console.error(`Error: Environment variable "${envVar}" is not set.`);
-      return;
+      process.exit(1);
     }
     await send('/fill-secret', 'POST', { selector, secret });
     console.log('Filled secret value into', selector);
-  });
+  }));
 
 program
   .command('type')
   .description('Simulate typing text into a form field, character by character.')
-  .argument('<selectorOrId>', 'The CSS selector or node ID for the input field.')
+  .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
   .argument('<text>', 'The text to type into the field.')
-  .action(async (selector, text) => {
+  .action(asyncAction(async (selector, text) => {
     await send('/type', 'POST', { selector, text });
     console.log('Typed text into', selector);
-  });
+  }));
 
 program
   .command('press')
   .description("Simulate a single key press (e.g., 'Enter', 'Tab').")
   .argument('<key>', "The key to press, as defined in Playwright's documentation.")
-  .action(async (key) => {
+  .action(asyncAction(async (key) => {
     await send('/press', 'POST', { key });
     console.log('Pressed', key);
-  });
+  }));
 
 program
   .command('nextChunk')
   .description('Scroll down by one viewport height to view the next chunk of content.')
-  .action(async () => {
+  .action(asyncAction(async () => {
     await send('/next-chunk', 'POST');
     console.log('Scrolled to the next chunk.');
-  });
+  }));
 
 program
   .command('prevChunk')
   .description('Scroll up by one viewport height to view the previous chunk of content.')
-  .action(async () => {
+  .action(asyncAction(async () => {
     await send('/prev-chunk', 'POST');
     console.log('Scrolled to the previous chunk.');
-  });
+  }));
 
 program
   .command('click')
-  .description('Click an element matching the specified CSS selector.')
-  .argument('<selectorOrId>', 'The CSS selector or node ID for the element to click.')
-  .action(async (selector) => {
+  .description('Click an element. Supports CSS selectors, XPath, and view-tree IDs.')
+  .argument('<selectorOrId>', 'CSS selector (e.g., "input"), XPath expression, or numeric ID from view-tree.')
+  .action(asyncAction(async (selector) => {
     await send('/click', 'POST', { selector });
     console.log('Clicked', selector);
-  });
+  }));
 
 program
   .command('screenshot')
@@ -398,21 +409,21 @@ program
   .description('Execute JavaScript in the browser context and return the result.')
   .argument('[script]', 'JavaScript code to execute (if not using --file).')
   .option('-f, --file <path>', 'Path to a JavaScript file to execute.')
-  .action(async (script, opts) => {
+  .action(asyncAction(async (script, opts) => {
     let scriptToRun = script;
 
     if (opts.file) {
       // Read JavaScript from file
       if (!fs.existsSync(opts.file)) {
         console.error(`Error: File not found: ${opts.file}`);
-        return;
+        process.exit(1);
       }
       scriptToRun = fs.readFileSync(opts.file, 'utf8');
     }
 
     if (!scriptToRun) {
       console.error('Error: No script provided. Use either a script argument or --file option.');
-      return;
+      process.exit(1);
     }
 
     const response = await send('/eval', 'POST', { script: scriptToRun });
@@ -428,7 +439,7 @@ program
     } else {
       console.log(result);
     }
-  });
+  }));
 
 try {
   program.parse();

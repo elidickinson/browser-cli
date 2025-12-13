@@ -37,7 +37,12 @@ function send(path, method = 'GET', body) {
         if (res.statusCode >= 400) {
           reject(out);
         } else {
-          resolve(out);
+          try {
+            const parsed = JSON.parse(out);
+            resolve(parsed);
+          } catch {
+            resolve(out);
+          }
         }
       });
     });
@@ -381,15 +386,39 @@ program
   .command('view-tree')
   .description("Display a hierarchical tree of the page's accessibility and DOM nodes.")
   .action(async () => {
-    const tree = await send('/tree');
-    console.log(tree);
+    const response = await send('/tree');
+    let tree = response.tree;
+
+    // Handle the case where tree is still a string (daemon not restarted yet)
+    if (typeof tree === 'string') {
+      console.log(tree);
+      return;
+    }
+
+    function displayNode(node, indent = 0) {
+      const parts = [`${'  '.repeat(indent)}[${node.id}]`];
+      if (node.role) parts.push(node.role);
+      if (node.tag) parts.push(node.tag);
+      if (node.name) parts.push(`: ${node.name}`);
+      console.log(parts.join(' '));
+
+      if (node.children && node.children.length > 0) {
+        node.children.forEach(child => displayNode(child, indent + 1));
+      }
+    }
+
+    if (tree) {
+      displayNode(tree);
+    } else {
+      console.log('No tree data found');
+    }
   });
 
 program
   .command('tabs')
   .description('List all open tabs (pages) in the browser daemon.')
   .action(async () => {
-    const tabs = JSON.parse(await send('/tabs'));
+    const tabs = await send('/tabs');
     tabs.forEach(tab => {
       console.log(`${tab.isActive ? '*' : ' '}${tab.index}: ${tab.title} (${tab.url})`);
     });
@@ -427,7 +456,7 @@ program
     }
 
     const response = await send('/eval', 'POST', { script: scriptToRun });
-    const { result } = JSON.parse(response);
+    const { result } = response;
 
     // Pretty print the result
     if (result === undefined) {

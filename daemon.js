@@ -536,26 +536,41 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
       }
       const rootAx = axNodes.find(n => !childSet.has(n.nodeId)) || axNodes[0];
 
-      function buildTree(nodeId, indent = 0) {
+      function buildTree(nodeId) {
         const axNode = axMap.get(nodeId);
-        if (!axNode) return '';
-        const domNode = backendIdToDomNodeMap.get(axNode.backendDOMNodeId); // Use backendIdToDomNodeMap
+        if (!axNode) return null;
+
+        const domNode = backendIdToDomNodeMap.get(axNode.backendDOMNodeId);
         const role = axNode.role?.value || '';
         const name = axNode.name?.value || '';
-        const tag = domNode ? `<${domNode.nodeName.toLowerCase()}>` : '';
-        let str = axNode.backendDOMNodeId
-          ? `${'  '.repeat(indent)}[${axNode.nodeId}] ${role}${tag ? ' ' + tag : ''}${name ? ': ' + name : ''}\n`
-          : `${'  '.repeat(indent)}[${axNode.nodeId}] ${role}${tag ? ' ' + tag : ''} <no DOM>\n`;
+        const tag = domNode ? domNode.nodeName.toLowerCase() : null;
+
+        // Store xpath mapping for this node
         if (domNode && domNode.nodeId) {
           idToXPath[axNode.nodeId] = idToXPath[domNode.nodeId];
         }
+
+        const node = {
+          id: axNode.nodeId,
+          role: role,
+          name: name || null,
+          tag: tag ? `<${tag}>` : null,
+          xpath: idToXPath[axNode.nodeId] || null,
+          children: []
+        };
+
+        // Recursively build children
         for (const childId of axNode.childIds || []) {
-          str += buildTree(childId, indent + 1);
+          const childNode = buildTree(childId);
+          if (childNode) {
+            node.children.push(childNode);
+          }
         }
-        return str;
+
+        return node;
       }
 
-      const tree = buildTree(rootAx.nodeId, 0);
+      const tree = buildTree(rootAx.nodeId);
       lastIdToXPath = idToXPath; // Store the mapping globally
       res.json({ tree });
     } catch (err) {

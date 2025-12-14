@@ -91,6 +91,7 @@ program
   .option('--adblock-base <level>', 'Base filter level: none, adsandtrackers, full, or ads (default: adsandtrackers)')
   .option('--adblock-lists <paths>', 'Comma-separated list of additional filter list URLs or file paths')
   .option('--foreground', 'Run daemon in foreground (attached to terminal, not detached)')
+  .option('--humanlike', 'Add random delays to simulate human-like interactions')
   .action(async (opts) => {
     const pid = getRunningPid();
     if (pid) {
@@ -162,6 +163,10 @@ program
 
       env.BR_ADBLOCK_LISTS = opts.adblockLists;
       console.log('Additional filter lists:', opts.adblockLists);
+    }
+    if (opts.humanlike) {
+      env.BR_HUMANLIKE = 'true';
+      console.log('Human-like mode enabled');
     }
 
     if (opts.foreground) {

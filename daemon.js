@@ -166,6 +166,12 @@ function record(action, args = {}) {
   history.push({ action, args, timestamp: new Date().toISOString() });
 }
 
+function humanDelay(minMs, maxMs) {
+  if (process.env.BR_HUMANLIKE !== 'true') return Promise.resolve();
+  const delay = Math.floor(Math.random() * (maxMs - minMs + 1)) + minMs;
+  return new Promise(r => setTimeout(r, delay));
+}
+
 const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
 
 (async () => {
@@ -284,10 +290,12 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
     const { url } = req.body;
     if (!url) return res.status(400).send('missing url');
     try {
+      await humanDelay(200, 400);
       await getActivePage().goto(url, {
         timeout: 30000,
         waitUntil: 'domcontentloaded'
       });
+      await humanDelay(200, 400);
       record('goto', { url });
       res.send('ok');
     } catch (err) {
@@ -378,7 +386,14 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
     const { text } = req.body;
     if (text === undefined) return res.status(400).send('missing text');
     await resolveAndPerformAction(req, res, async (selector) => {
-      await getActivePage().type(selector, text);
+      if (process.env.BR_HUMANLIKE === 'true') {
+        for (const char of text) {
+          await getActivePage().type(selector, char);
+          await humanDelay(30, 80);
+        }
+      } else {
+        await getActivePage().type(selector, text);
+      }
     }, 'type', { text });
   });
 
@@ -420,6 +435,7 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
 
   app.post('/click', async (req, res) => {
     await resolveAndPerformAction(req, res, async (selector) => {
+      await humanDelay(50, 150);
       await getActivePage().click(selector);
     }, 'click');
   });

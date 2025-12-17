@@ -307,6 +307,21 @@ program
   }));
 
 program
+  .command('search')
+  .description('Fill a search input and submit the query.')
+  .argument('<query>', 'The search query to enter.')
+  .option('-s, --selector <selector>', 'Explicit CSS selector, XPath expression, or numeric ID from view-tree for the search input')
+  .action(asyncAction(async (query, opts) => {
+    const body = { query };
+    if (opts.selector) body.selector = opts.selector;
+    const response = await send('/search', 'POST', body);
+    console.log('Searched for:', query);
+    if (response.selector) {
+      console.log('Used selector:', response.selector);
+    }
+  }));
+
+program
   .command('nextChunk')
   .description('Scroll down by one viewport height to view the next chunk of content.')
   .action(asyncAction(async () => {

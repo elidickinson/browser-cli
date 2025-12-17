@@ -303,7 +303,29 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
     }
   });
 
-  async function resolveAndPerformAction(req, res, actionFn, recordAction, recordArgs = {}) {
+  async function resolveSelector(page, selector) {
+  let element;
+  let actualSelector = selector;
+
+  // Handle numeric IDs from view-tree
+  if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
+    const xpath = lastIdToXPath[selector];
+    if (!xpath) throw new Error(`XPath not found for ID: ${selector}`);
+    element = await page.$(xpath);
+    actualSelector = xpath;
+  } else {
+    // Handle CSS selectors and XPath expressions
+    element = await page.$(selector);
+  }
+
+  if (!element) {
+    throw new Error(`Element not found for selector: ${selector}`);
+  }
+
+  return { element, actualSelector };
+}
+
+async function resolveAndPerformAction(req, res, actionFn, recordAction, recordArgs = {}) {
     let { selector } = req.body;
     if (!selector) return res.status(400).send('missing selector');
 
@@ -406,6 +428,59 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
       res.send('ok');
     } catch (err) {
       res.status(500).send(err.message);
+    }
+  });
+
+  app.post('/search', async (req, res) => {
+    const { query, selector } = req.body;
+    if (!query || !query.trim()) return res.status(400).send('missing query');
+
+    try {
+      let searchInput;
+      let foundSelector = null;
+
+      if (selector) {
+        // Use explicit selector if provided
+        const { element, actualSelector } = await resolveSelector(getActivePage(), selector);
+        searchInput = element;
+        foundSelector = actualSelector;
+      } else {
+        // Smart search input detection
+        const searchSelectors = [
+          'input[type="search"]',
+          'input[name="q"]',
+          'input[name="query"]',
+          'input[name="search"]',
+          'input[placeholder*="search" i]',
+          '[role="searchbox"]',
+          'input[placeholder*="Search" i]'
+        ];
+
+        for (const sel of searchSelectors) {
+          const element = await getActivePage().$(sel);
+          if (element) {
+            searchInput = element;
+            foundSelector = sel;
+            break;
+          }
+        }
+
+        if (!searchInput) {
+          return res.status(400).send('No search input found. Try again with --selector to specify the exact search input.');
+        }
+      }
+
+      await humanDelay(50, 150);
+      await searchInput.fill(query);
+      await humanDelay(50, 150);
+      await getActivePage().keyboard.press('Enter');
+
+      record('search', { query, selector: foundSelector });
+      res.json({ status: 'ok', selector: foundSelector });
+    } catch (err) {
+      res.status(500).send(`Search error: ${err.message}
+
+Try using --selector to specify the search input explicitly.`);
     }
   });
 

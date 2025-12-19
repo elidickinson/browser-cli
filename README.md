@@ -305,3 +305,35 @@ br stop
 ```
 
 The daemon runs a headless Chromium browser and exposes a small HTTP API. The CLI communicates with it to perform actions like navigation and clicking elements.
+
+## Future Features
+
+Based on insights from the "Building Browser Agents" research paper and real-world agent usage, here are potential improvements being considered:
+
+### Enhanced Context Management
+- **Visual snapshots for ambiguous elements** (Low complexity) - Add small screenshots for visually similar buttons or icon-only elements when text alone isn't sufficient
+- **Element state indicators** (Low complexity) - Include `visible`, `enabled`, `focused`, `checked` states in view-tree output
+- **Bounding box data** (Low complexity) - Add coordinates to help agents understand spatial layout
+
+### Action Verification & Feedback
+- **Action result summaries** (Medium complexity) - Return what changed after actions (e.g., "Clicked button → modal appeared")
+- **Before/after tree diffs** (Medium complexity) - Show minimal DOM changes after actions so agents can verify success
+- **Wait-for-stable** (Medium complexity) - Auto-wait for DOM to stabilize after clicks/navigations
+
+### Reliability Improvements
+- **Retry with fallback selectors** (Low complexity) - If click by ID fails, auto-retry with text match
+- **Element visibility verification** (Low complexity) - Prevent clicks on hidden/off-screen elements
+- **Challenge detection reporting** (Low complexity) - Warn agents when Cloudflare or other challenges appear
+
+### Context Optimization
+- **Filtered/interactive-only view** (Low complexity) - Show only buttons, links, inputs to reduce context
+- **Viewport-only tree** (Low complexity) - Elements currently visible on screen
+- **Depth limiting** (Low complexity) - `view-tree --depth 3` to control output size
+
+### High-Level Convenience Commands
+- **Search helper** (Low complexity) - `br search <query>` for fill search box + submit
+- **Login helper** (Medium complexity) - `br login <user-env> <pass-env>` to find form + fill + submit
+- **Wait-for element** (Low complexity) - `br wait-for <selector>` for explicit waits
+- **Extract text** (Low complexity) - `br extract-text <selector>` for content retrieval
+
+These features aim to reduce the number of decisions agents must make for common tasks while maintaining the tool's simplicity and reliability. Priority will be given to features that most frequently cause agent failures in real-world usage.

@@ -490,6 +490,28 @@ program
     }
   }));
 
+program
+  .command('extract-text')
+  .description('Extract visible text from the page or specific elements.')
+  .option('-s, --selector <selector>', 'CSS selector, XPath expression, or numeric ID from view-tree to extract text from specific elements')
+  .action(asyncAction(async (opts) => {
+    const body = {};
+    if (opts.selector) body.selector = opts.selector;
+    const response = await send('/extract-text', 'POST', body);
+    console.log(response.text);
+    if (response.selector) {
+      console.log('(using selector:', response.selector + ')');
+    }
+  }));
+
+// Show help for unknown commands
+program.on('command:*', (operands) => {
+  console.error(`error: unknown command '${operands[0]}'`);
+  console.log();
+  program.outputHelp();
+  process.exit(1);
+});
+
 try {
   program.parse();
 } catch (err) {

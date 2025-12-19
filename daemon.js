@@ -692,7 +692,62 @@ Try using --selector to specify the search input explicitly.`);
     }
   });
 
+  app.post('/extract-text', async (req, res) => {
+    let page;
+    try {
+      page = await browser.getPage();
+      const { selector } = req.body;
 
+      let resolvedSelector = null;
+      let response = { text: '' };
+
+      if (selector) {
+        resolvedSelector = resolveSelector(selector);
+        if (!resolvedSelector) {
+          return res.status(400).send('Invalid selector');
+        }
+        response.selector = resolvedSelector;
+      }
+
+      const text = await page.evaluate((sel, maxElements = 1000, timeout = 5000) => {
+        const startTime = Date.now();
+
+        if (sel) {
+          const elements = Array.from(document.querySelectorAll(sel));
+          if (elements.length > maxElements) {
+            throw new Error(`Too many elements found (${elements.length} > ${maxElements})`);
+          }
+
+          if (Date.now() - startTime > timeout) {
+            throw new Error('Timeout during extraction');
+          }
+
+          return elements.map((el, index) => {
+            const text = el.innerText || '';
+            return `[Element ${index + 1}]\n${text}`;
+          }).join('\n\n---\n\n');
+        } else {
+          const scripts = document.querySelectorAll('script, style, noscript');
+          scripts.forEach(el => el.remove());
+
+          const hiddenElements = document.querySelectorAll('[style*="display:none"], [style*="visibility:hidden"], [style*="opacity:0"]');
+          hiddenElements.forEach(el => el.remove());
+
+          if (Date.now() - startTime > timeout) {
+            throw new Error('Timeout during extraction');
+          }
+
+          return document.body.innerText || '';
+        }
+      }, resolvedSelector);
+
+      response.text = text || 'No text found';
+      res.json(response);
+
+    } catch (err) {
+      res.status(500).send(`Error extracting text: ${err.message}`);
+    }
+  });
 
   app.post('/shot', async (req, res) => {
     let page;

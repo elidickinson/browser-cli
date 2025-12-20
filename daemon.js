@@ -431,7 +431,7 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
     }
   });
 
-  app.post('/search', async (req, res) => {
+  app.post('/fill-search', async (req, res) => {
     const { query, selector } = req.body;
     if (!query || !query.trim()) return res.status(400).send('missing query');
 

@@ -331,9 +331,15 @@ Based on insights from the "Building Browser Agents" research paper and real-wor
 - **Depth limiting** (Low complexity) - `view-tree --depth 3` to control output size
 
 ### High-Level Convenience Commands
-- **Search helper** (Low complexity) - `br search <query>` for fill search box + submit
 - **Login helper** (Medium complexity) - `br login <user-env> <pass-env>` to find form + fill + submit
 - **Wait-for element** (Low complexity) - `br wait-for <selector>` for explicit waits
-- **Extract text** (Low complexity) - `br extract-text <selector>` for content retrieval
+
+### Content Extraction
+- **extract-content** (Low complexity) - Smart content extraction using @mozilla/readability
+  - Strips navigation, ads, sidebars, boilerplate
+  - Returns clean article/main content as Markdown (via turndown)
+  - Outputs: title, byline, excerpt, content
+  - Option: `--format text|markdown|html` (default: markdown)
+  - Could be added as `extract-text --content` flag or standalone command
 
 These features aim to reduce the number of decisions agents must make for common tasks while maintaining the tool's simplicity and reliability. Priority will be given to features that most frequently cause agent failures in real-world usage.

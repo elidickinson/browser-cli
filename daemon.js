@@ -693,9 +693,8 @@ Try using --selector to specify the search input explicitly.`);
   });
 
   app.post('/extract-text', async (req, res) => {
-    let page;
     try {
-      page = await browser.getPage();
+      const page = getActivePage();
       const { selector } = req.body;
 
       let resolvedSelector = null;
@@ -869,6 +868,11 @@ Try using --selector to specify the search input explicitly.`);
 
 
     res.send(html);
+  });
+
+  app.post('/shutdown', (req, res) => {
+    res.send('Shutting down');
+    shutdown();
   });
 
   const port = 3030;

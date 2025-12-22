@@ -220,15 +220,21 @@ program
 program
   .command('stop')
   .description('Stop the headless browser daemon process.')
-  .action(() => {
+  .action(async () => {
     const pid = getRunningPid();
-    if (!pid) {
-      console.log('Daemon is not running.');
+    if (pid) {
+      process.kill(pid);
+      try { fs.unlinkSync(PID_FILE); } catch {}
+      console.log('Daemon stopped.');
       return;
     }
-    process.kill(pid);
-    fs.unlinkSync(PID_FILE);
-    console.log('Daemon stopped.');
+    // No PID file, but daemon might be running from another install - try to stop via API
+    try {
+      await send('/shutdown', 'POST');
+      console.log('Daemon stopped.');
+    } catch {
+      console.log('Daemon is not running.');
+    }
   });
 
 program

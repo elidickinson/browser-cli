@@ -265,6 +265,8 @@ br start --adblock none --adblock-lists https://example.com/list1.txt,/path/to/l
 
 Ad blocking is powered by [@ghostery/adblocker-playwright](https://github.com/ghostery/adblocker) with blocklists from EasyList, EasyPrivacy, and uBlock Origin.
 
+For scriptlet compatibility and supported features, see the [AdBlocker Compatibility Matrix](https://github.com/ghostery/adblocker/wiki/Compatibility-Matrix).
+
 ### Execute JavaScript
 
 ```bash

@@ -57,6 +57,8 @@ propublica.org###cta
 ! hubspot
 ###hs-interactives-modal-overlay
 ##.hs-cta-embed__loaded
+##.daily_digest_modal
+##.js-donation-banner
 
 inthesetimes.com##.fixedalert
 
@@ -82,3 +84,9 @@ dailyevergreen.com,dailyexpose.uk,thewalrus.ca##.wppopups-whole
 
 ! Block FundraiseUp lightbox
 ||static.fundraiseup.com/*.lightbox.js
+
+
+
+! === COOKIE SETTING RULES ===
+! Set Substack intro popup cookie to hide the popup
+discourseblog.com,dropsitenews.com,erininthemorning.com,*.substack.com,zeteo.com##+js(set-cookie, intro_popup_last_hidden_at, 2029-01-01T01:01:01.000Z)

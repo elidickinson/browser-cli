@@ -178,11 +178,10 @@ program
         env
       });
 
-      child.on('exit', code => {
-        if (code !== 0) {
-          console.error(`Daemon exited with code ${code}.`);
-          process.exit(code);
-        }
+      fs.writeFileSync(PID_FILE, String(child.pid));
+
+      child.on('exit', () => {
+        try { fs.unlinkSync(PID_FILE); } catch {}
       });
 
     } else {

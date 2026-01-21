@@ -1,7 +1,6 @@
 let screenshotBlob = null;
 let currentFilename = 'screenshot.png';
 let currentMode = 'single';
-let outputConfigs = [];
 let multiImages = [];
 
 function toggleAdvanced() {
@@ -15,7 +14,6 @@ function setMode(mode) {
     });
 
     const multiSection = document.getElementById('multi-section');
-    const advancedOptions = document.getElementById('advanced-options');
     const submitBtn = document.getElementById('submit-btn');
     const heightGroup = document.getElementById('height').closest('.form-group');
     const outputWidthGroup = document.getElementById('output_width').closest('.form-group');
@@ -24,8 +22,8 @@ function setMode(mode) {
         multiSection.classList.remove('hidden');
         heightGroup.classList.add('hidden');
         outputWidthGroup.classList.add('hidden');
-        advancedOptions.classList.add('visible');
-        if (outputConfigs.length === 0) {
+        document.getElementById('advanced-options').classList.add('visible');
+        if (document.querySelectorAll('.output-row').length === 0) {
             addOutput();
             addOutput();
         }
@@ -40,35 +38,25 @@ function setMode(mode) {
 }
 
 function addOutput() {
-    const id = Date.now();
-    outputConfigs.push({ id, height: null, output_width: null });
-    renderOutputs();
-}
-
-function removeOutput(id) {
-    outputConfigs = outputConfigs.filter(c => c.id !== id);
-    renderOutputs();
-}
-
-function updateOutput(id, field, value) {
-    const config = outputConfigs.find(c => c.id === id);
-    if (config) config[field] = value || null;
-}
-
-function renderOutputs() {
     const list = document.getElementById('outputs-list');
-    list.innerHTML = outputConfigs.map((c, i) => `
-        <div class="output-row">
-            <span class="output-label">Output ${i + 1}</span>
-            <input type="number" placeholder="Height (px)" class="output-input"
-                onchange="updateOutput(${c.id}, 'height', this.value)"
-                value="${c.height || ''}">
-            <input type="number" placeholder="Output Width (px)" class="output-input"
-                onchange="updateOutput(${c.id}, 'output_width', this.value)"
-                value="${c.output_width || ''}">
-            <button type="button" class="btn-remove" onclick="removeOutput(${c.id})">×</button>
-        </div>
-    `).join('');
+    const index = list.children.length + 1;
+    const row = document.createElement('div');
+    row.className = 'output-row';
+    row.innerHTML = `
+        <span class="output-label">Output ${index}</span>
+        <input type="number" placeholder="Height (px)" class="output-input" data-field="height">
+        <input type="number" placeholder="Output Width (px)" class="output-input" data-field="output_width">
+        <button type="button" class="btn-remove" onclick="removeOutput(this)">×</button>
+    `;
+    list.appendChild(row);
+}
+
+function removeOutput(btn) {
+    btn.closest('.output-row').remove();
+    // Renumber remaining outputs
+    document.querySelectorAll('.output-row').forEach((row, i) => {
+        row.querySelector('.output-label').textContent = `Output ${i + 1}`;
+    });
 }
 
 function showError(message) {
@@ -124,12 +112,9 @@ async function captureSingleScreenshot(data) {
     }
 
     const contentType = res.headers.get('Content-Type');
-    let extension = 'png';
+    const ext = contentType === 'image/webp' ? 'webp' : contentType === 'image/jpeg' ? 'jpg' : 'png';
 
-    if (contentType === 'image/webp') extension = 'webp';
-    else if (contentType === 'image/jpeg') extension = 'jpg';
-
-    currentFilename = `screenshot-${Date.now()}.${extension}`;
+    currentFilename = `screenshot-${Date.now()}.${ext}`;
     screenshotBlob = await res.blob();
     document.getElementById('screenshot-img').src = URL.createObjectURL(screenshotBlob);
     document.getElementById('result-container').classList.add('visible');
@@ -148,13 +133,21 @@ async function captureMultiScreenshot(data) {
     if (data.get('output_format')) body.output_format = data.get('output_format');
     if (data.get('output_quality')) body.output_quality = parseInt(data.get('output_quality'));
 
-    const outputs = outputConfigs.map(c => ({
-        height: c.height ? parseInt(c.height) : null,
-        output_width: c.output_width ? parseInt(c.output_width) : null
-    })).filter(o => o.height || o.output_width);
+    // Read outputs directly from DOM
+    const outputs = [];
+    document.querySelectorAll('.output-row').forEach(row => {
+        const height = row.querySelector('[data-field="height"]').value;
+        const output_width = row.querySelector('[data-field="output_width"]').value;
+        if (height || output_width) {
+            outputs.push({
+                height: height ? parseInt(height) : null,
+                output_width: output_width ? parseInt(output_width) : null
+            });
+        }
+    });
 
     if (outputs.length === 0) {
-        throw new Error('Please specify height or output_width for each output configuration');
+        throw new Error('Please specify height or output_width for at least one output');
     }
 
     body.outputs = outputs;
@@ -180,13 +173,11 @@ function displayMultiResults(images) {
     container.innerHTML = images.map((img, i) => {
         const ext = img.content_type === 'image/webp' ? 'webp'
                     : img.content_type === 'image/jpeg' ? 'jpg' : 'png';
-        const filename = `screenshot-${i + 1}_${img.width}x${img.height}.${ext}`;
-
         return `
             <div class="multi-result">
                 <div class="multi-result-header">
                     <span>${img.width} × ${img.height}</span>
-                    <button class="btn btn-sm btn-secondary" data-index="${i}" onclick="downloadMultiImage(${i})">
+                    <button class="btn btn-sm btn-secondary" onclick="downloadMultiImage(${i})">
                         ⬇️ Download
                     </button>
                 </div>
@@ -207,19 +198,13 @@ function downloadMultiImage(index) {
     const ext = img.content_type === 'image/webp' ? 'webp'
                 : img.content_type === 'image/jpeg' ? 'jpg' : 'png';
     const filename = `screenshot-${index + 1}_${img.width}x${img.height}.${ext}`;
-    const byteCharacters = atob(img.data);
-    const byteArrays = [];
-
-    for (let offset = 0; offset < byteCharacters.length; offset += 512) {
-        const slice = byteCharacters.slice(offset, offset + 512);
-        const byteNumbers = new Array(slice.length);
-        for (let i = 0; i < slice.length; i++) {
-            byteNumbers[i] = slice.charCodeAt(i);
-        }
-        byteArrays.push(new Uint8Array(byteNumbers));
+    const byteChars = atob(img.data);
+    const bytes = new Uint8Array(byteChars.length);
+    for (let i = 0; i < byteChars.length; i++) {
+        bytes[i] = byteChars.charCodeAt(i);
     }
 
-    const blob = new Blob(byteArrays, { type: img.content_type });
+    const blob = new Blob([bytes], { type: img.content_type });
     const a = document.createElement('a');
     a.href = URL.createObjectURL(blob);
     a.download = filename;

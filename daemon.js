@@ -193,7 +193,7 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
     headless: process.env.BR_HEADLESS === 'true',
     viewport
   });
-  browser = await context.browser();
+  browser = await context.browser(); // can be null with persistent contexts (browser managed internally)
 
   let pages = [];
   let activePage;
@@ -226,16 +226,19 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
 
   context.on('close', () => {
     if (!shuttingDown) {
-      console.log('Browser context closed. This may cause subsequent requests to fail.');
-    }
-  });
-
-  browser.on('disconnected', () => {
-    if (!shuttingDown) {
-      console.log('Browser disconnected. Exiting daemon.');
+      console.log('Browser context closed. Exiting daemon.');
       process.exit(0);
     }
   });
+
+  if (browser) {
+    browser.on('disconnected', () => {
+      if (!shuttingDown) {
+        console.log('Browser disconnected. Exiting daemon.');
+        process.exit(0);
+      }
+    });
+  }
 
   // Listen for page close events
   context.on('pageclose', closedPage => {
@@ -364,6 +367,7 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
     }
   }
 
+  // TODO: XPath selectors from numeric IDs won't work with querySelector
   app.post('/scroll-into-view', async (req, res) => {
     await resolveAndPerformAction(req, res, async (selector) => {
       await getActivePage().evaluate(sel => {
@@ -725,17 +729,14 @@ Try using --selector to specify the search input explicitly.`);
             return `[Element ${index + 1}]\n${text}`;
           }).join('\n\n---\n\n');
         } else {
-          const scripts = document.querySelectorAll('script, style, noscript');
-          scripts.forEach(el => el.remove());
-
-          const hiddenElements = document.querySelectorAll('[style*="display:none"], [style*="visibility:hidden"], [style*="opacity:0"]');
-          hiddenElements.forEach(el => el.remove());
+          const clone = document.body.cloneNode(true);
+          clone.querySelectorAll('script, style, noscript, [hidden], [style*="display:none"], [style*="visibility:hidden"], [style*="opacity:0"]').forEach(el => el.remove());
 
           if (Date.now() - startTime > timeout) {
             throw new Error('Timeout during extraction');
           }
 
-          return document.body.innerText || '';
+          return clone.innerText || '';
         }
       }, resolvedSelector);
 
@@ -965,15 +966,6 @@ Try using --selector to specify the search input explicitly.`);
         await page.close();
       }
     }
-  });
-
-  // API endpoint for serving the web interface
-  app.get('/', (req, res) => {
-    let html = fs.readFileSync(path.join(__dirname, 'public/index.html'), 'utf8');
-
-
-
-    res.send(html);
   });
 
   app.post('/shutdown', (req, res) => {

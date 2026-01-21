@@ -866,7 +866,6 @@ Try using --selector to specify the search input explicitly.`);
       const {
         url,
         width,
-        maxHeight,
         waitTime,
         outputs,
         output_format,
@@ -890,7 +889,7 @@ Try using --selector to specify the search input explicitly.`);
       await setupAdblocking(page);
 
       const maxWidth = width ? parseInt(width, 10) : 1280;
-      const maxPixelHeight = maxHeight ? parseInt(maxHeight, 10) : null;
+      const maxPixelHeight = outputs.reduce((max, o) => Math.max(max, parseInt(o.height) || 0), 0) || null;
       await page.setViewportSize({ width: maxWidth, height: maxPixelHeight || 720 });
 
       await page.goto(processedUrl, { timeout: 20000 });
@@ -955,7 +954,7 @@ Try using --selector to specify the search input explicitly.`);
         };
       }));
 
-      record('api-shot-multi', { url, width, maxHeight, outputs, fullPage });
+      record('api-shot-multi', { url, width, outputs, fullPage });
 
       res.json({ images });
 

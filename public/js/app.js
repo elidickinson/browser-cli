@@ -17,9 +17,13 @@ function setMode(mode) {
     const multiSection = document.getElementById('multi-section');
     const advancedOptions = document.getElementById('advanced-options');
     const submitBtn = document.getElementById('submit-btn');
+    const heightGroup = document.getElementById('height').closest('.form-group');
+    const outputWidthGroup = document.getElementById('output_width').closest('.form-group');
 
     if (mode === 'multi') {
         multiSection.classList.remove('hidden');
+        heightGroup.classList.add('hidden');
+        outputWidthGroup.classList.add('hidden');
         advancedOptions.classList.add('visible');
         if (outputConfigs.length === 0) {
             addOutput();
@@ -28,6 +32,8 @@ function setMode(mode) {
         submitBtn.textContent = '📸 Capture Multiple Screenshots';
     } else {
         multiSection.classList.add('hidden');
+        heightGroup.classList.remove('hidden');
+        outputWidthGroup.classList.remove('hidden');
         submitBtn.textContent = '📸 Capture Screenshot';
     }
     resetForm();
@@ -138,9 +144,6 @@ async function captureMultiScreenshot(data) {
         const v = data.get(f);
         if (v) body[f] = parseInt(v);
     });
-
-    const height = data.get('height');
-    if (height) body.maxHeight = parseInt(height);
 
     if (data.get('output_format')) body.output_format = data.get('output_format');
     if (data.get('output_quality')) body.output_quality = parseInt(data.get('output_quality'));

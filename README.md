@@ -96,6 +96,7 @@ Search for job posting
 - **Ad blocking**: Optional ad and tracker blocking with custom filter list support
 - **JavaScript injection**: Execute custom JavaScript code on web pages
 - **HTTP API**: REST API endpoint for taking screenshots programmatically
+- **Multi-screenshot**: Capture multiple screenshots with different dimensions from a single page load
 
 ## Command
 
@@ -288,7 +289,7 @@ The `js` command executes JavaScript code in the context of the current page and
 
 ### HTTP API for Screenshots
 
-The daemon exposes an HTTP endpoint for programmatic screenshot capture:
+The daemon exposes HTTP endpoints for programmatic screenshot capture:
 
 ```bash
 # Basic usage
@@ -296,6 +297,16 @@ curl -X POST "http://localhost:3030/goto" -H "Content-Type: application/json" -d
 
 # Take a screenshot
 curl -X POST "http://localhost:3030/shot" -H "Content-Type: application/json" -d '{"url":"https://example.com","width":1920,"height":1080}' -o screenshot.png
+
+# Take multiple screenshots from a single page load
+curl -X POST "http://localhost:3030/shot-multi" -H "Content-Type: application/json" -d '{
+  "url": "https://example.com",
+  "width": 1920,
+  "outputs": [
+    {"height": 720, "output_width": 640},
+    {"height": 1080, "output_width": 1280}
+  ]
+}'
 ```
 
 See [API.md](API.md) for complete API documentation and examples in multiple languages.

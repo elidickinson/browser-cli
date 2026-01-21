@@ -702,10 +702,8 @@ Try using --selector to specify the search input explicitly.`);
       let response = { text: '' };
 
       if (selector) {
-        resolvedSelector = resolveSelector(selector);
-        if (!resolvedSelector) {
-          return res.status(400).send('Invalid selector');
-        }
+        const resolved = await resolveSelector(page, selector);
+        resolvedSelector = resolved.actualSelector;
         response.selector = resolvedSelector;
       }
 
@@ -808,7 +806,7 @@ Try using --selector to specify the search input explicitly.`);
       await page.waitForTimeout(additionalWait);
 
       // dismiss any modals not caught by adblock
-      await dismissModals(getActivePage());
+      await dismissModals(page);
 
       // Take screenshot to buffer
       const isFullPage = !height; // Full page if height not provided
@@ -837,15 +835,13 @@ Try using --selector to specify the search input explicitly.`);
 
       // Convert to the requested format
       if (format === 'webp') {
-        processor = processor.webp({ quality });
-        processedBuffer = await processor.toBuffer();
+        processedBuffer = await processor.webp({ quality }).toBuffer();
         res.setHeader('Content-Type', 'image/webp');
       } else if (format === 'jpeg' || format === 'jpg') {
-        processor = processor.jpeg({ quality });
-        processedBuffer = await processor.toBuffer();
+        processedBuffer = await processor.jpeg({ quality }).toBuffer();
         res.setHeader('Content-Type', 'image/jpeg');
       } else {
-        // Default to PNG
+        processedBuffer = await processor.png().toBuffer();
         res.setHeader('Content-Type', 'image/png');
       }
 
@@ -856,6 +852,115 @@ Try using --selector to specify the search input explicitly.`);
       res.status(500).json({ error: `Error capturing screenshot: ${err.message}` });
     } finally {
       // Close the page if it was created
+      if (page) {
+        await page.close();
+      }
+    }
+  });
+
+  // Multiple screenshots with different dimensions from single page load
+  app.post('/shot-multi', async (req, res) => {
+    let page;
+    try {
+      const {
+        url,
+        width,
+        maxHeight,
+        waitTime,
+        outputs,
+        output_format,
+        output_quality
+      } = req.body;
+
+      if (!url) {
+        return res.status(400).json({ error: 'missing url parameter' });
+      }
+      if (!outputs || !Array.isArray(outputs) || outputs.length === 0) {
+        return res.status(400).json({ error: 'outputs must be a non-empty array' });
+      }
+
+      // Prepend https:// if no protocol is specified
+      let processedUrl = url;
+      if (!url.startsWith('http://') && !url.startsWith('https://')) {
+        processedUrl = `https://${url}`;
+      }
+
+      page = await context.newPage();
+      await setupAdblocking(page);
+
+      const maxWidth = width ? parseInt(width, 10) : 1280;
+      const maxPixelHeight = maxHeight ? parseInt(maxHeight, 10) : null;
+      await page.setViewportSize({ width: maxWidth, height: maxPixelHeight || 720 });
+
+      await page.goto(processedUrl, { timeout: 20000 });
+      await waitForChallengeBypass(page);
+
+      await page.addStyleTag({
+        content: `
+          ::-webkit-scrollbar { display: none; }
+          html { scrollbar-width: none; }
+          html { -ms-overflow-style: none; }
+        `
+      });
+
+      const additionalWait = waitTime ? parseInt(waitTime, 10) : 1000;
+      await page.waitForTimeout(additionalWait);
+      await dismissModals(page);
+
+      const format = output_format || 'png';
+      const quality = output_quality ? parseInt(output_quality, 10) : 80;
+
+      const fullPage = !maxPixelHeight;
+      const screenshotBuffer = await page.screenshot({ fullPage, type: 'png' });
+      const metadata = await sharp(screenshotBuffer).metadata();
+
+      const images = await Promise.all(outputs.map(async (output) => {
+        const outputHeight = output.height ? parseInt(output.height, 10) : null;
+        const outputWidth = output.output_width ? parseInt(output.output_width, 10) : null;
+        const outputFormat = output.output_format || format;
+        const outputQuality = output.output_quality ? parseInt(output.output_quality, 10) : quality;
+
+        let processor = sharp(screenshotBuffer);
+
+        // Crop to height from top
+        if (outputHeight && metadata.height > outputHeight) {
+          processor = processor.extract({ left: 0, top: 0, width: metadata.width, height: outputHeight });
+        }
+
+        // Resize to output_width
+        if (outputWidth) {
+          processor = processor.resize(outputWidth, null, { withoutEnlargement: true });
+        }
+
+        let buffer;
+        let contentType;
+        if (outputFormat === 'webp') {
+          buffer = await processor.webp({ quality: outputQuality }).toBuffer();
+          contentType = 'image/webp';
+        } else if (outputFormat === 'jpeg' || outputFormat === 'jpg') {
+          buffer = await processor.jpeg({ quality: outputQuality }).toBuffer();
+          contentType = 'image/jpeg';
+        } else {
+          buffer = await processor.toBuffer();
+          contentType = 'image/png';
+        }
+
+        const finalMetadata = await sharp(buffer).metadata();
+        return {
+          data: buffer.toString('base64'),
+          content_type: contentType,
+          height: finalMetadata.height,
+          width: finalMetadata.width
+        };
+      }));
+
+      record('api-shot-multi', { url, width, maxHeight, outputs, fullPage });
+
+      res.json({ images });
+
+    } catch (err) {
+      res.status(500).json({ error: `Error capturing screenshots: ${err.message}` });
+    } finally {
       if (page) {
         await page.close();
       }

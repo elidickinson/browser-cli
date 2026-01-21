@@ -11,6 +11,10 @@
   <div class="header">
     <h1>📸 Browser CLI Screenshot Tool</h1>
   </div>
+  <div class="mode-toggle">
+    <button type="button" class="mode-btn active" data-mode="single" onclick="setMode('single')">Single</button>
+    <button type="button" class="mode-btn" data-mode="multi" onclick="setMode('multi')">Multi</button>
+  </div>
   <div class="form-container">
     <form id="screenshot-form">
       <div class="form-group">
@@ -31,6 +35,7 @@
           <input type="number" id="waitTime" name="waitTime" placeholder="1000" min="0" step="100">
         </div>
       </div>
+
       <div class="advanced-toggle" onclick="toggleAdvanced()">⚙️ Advanced Options</div>
       <div id="advanced-options" class="advanced-options">
         <div class="form-row">
@@ -52,15 +57,30 @@
           </div>
         </div>
       </div>
+
+      <div id="multi-section" class="multi-section hidden">
+        <h3>Output Configurations</h3>
+        <div id="outputs-list"></div>
+        <button type="button" class="btn btn-secondary" onclick="addOutput()">+ Add Output</button>
+      </div>
+
       <button type="submit" class="btn" id="submit-btn">📸 Capture Screenshot</button>
     </form>
   </div>
-  <div id="result-container" class="result-container">
+
+  <div id="result-container" class="result-container result-single">
     <div class="result-actions">
       <button class="btn btn-secondary" onclick="downloadScreenshot()">⬇️ Download</button>
       <button class="btn btn-secondary" onclick="resetForm()">🔄 New Screenshot</button>
     </div>
     <div class="screenshot-preview"><img id="screenshot-img" alt="Screenshot"></div>
+  </div>
+
+  <div id="result-container-multi" class="result-container result-multi">
+    <div class="result-actions">
+      <button class="btn btn-secondary" onclick="resetForm()">🔄 New Screenshot</button>
+    </div>
+    <div id="multi-results" class="multi-results"></div>
   </div>
 </div>
 <script src="/js/app.js"></script>

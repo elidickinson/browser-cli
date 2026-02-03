@@ -113,11 +113,6 @@ async function waitForChallengeBypass(page, maxWaitSeconds = 8) {
   return false;
 }
 
-async function setupAdblocking(page) {
-  if (!adblocker) return;
-  await adblocker.enableBlockingInPage(page);
-}
-
 function record(action, args = {}) {
   history.push({ action, args, timestamp: new Date().toISOString() });
 }
@@ -154,16 +149,12 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
   const initialPage = await context.newPage();
   pages.push(initialPage);
   activePage = initialPage;
-  await setupAdblocking(initialPage);
-
-  function getActivePage() {
-    return activePage;
-  }
+  if (adblocker) await adblocker.enableBlockingInPage(initialPage);
 
   context.on('page', async newPage => {
     pages = await context.pages();
     activePage = newPage;
-    await setupAdblocking(newPage);
+    if (adblocker) await adblocker.enableBlockingInPage(newPage);
   });
 
   context.on('framenavigated', async frame => {
@@ -245,7 +236,7 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
     if (!url) return res.status(400).send('missing url');
     try {
       await humanDelay(200, 400);
-      await getActivePage().goto(url, {
+      await activePage.goto(url, {
         timeout: 30000,
         waitUntil: 'domcontentloaded'
       });
@@ -291,11 +282,11 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
       if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
         const xpath = lastIdToXPath[selector];
         if (!xpath) return res.status(400).send('XPath not found for ID');
-        element = await getActivePage().$(xpath);
+        element = await activePage.$(xpath);
         actualSelector = xpath;
       } else {
         // Handle CSS selectors and XPath expressions
-        element = await getActivePage().$(selector);
+        element = await activePage.$(selector);
       }
 
       if (!element) {
@@ -313,7 +304,7 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
 
   app.post('/scroll-into-view', async (req, res) => {
     await resolveAndPerformAction(req, res, async (selector) => {
-      await getActivePage().evaluate(sel => {
+      await activePage.evaluate(sel => {
         const el = document.querySelector(sel);
         if (el) el.scrollIntoView();
       }, selector);
@@ -325,7 +316,7 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
     if (percentage === undefined) return res.status(400).send('missing percentage');
     percentage = Math.max(0, Math.min(100, Number(percentage)));
     try {
-      await getActivePage().evaluate(pct => {
+      await activePage.evaluate(pct => {
         window.scrollTo(0, document.body.scrollHeight * (pct / 100));
       }, percentage);
       record('scrollTo', { percentage });
@@ -339,7 +330,7 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
     const { text } = req.body;
     if (text === undefined) return res.status(400).send('missing text');
     await resolveAndPerformAction(req, res, async (selector) => {
-      await getActivePage().fill(selector, text);
+      await activePage.fill(selector, text);
     }, 'fill', { text });
   });
 
@@ -347,7 +338,7 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
     const { secret } = req.body;
     if (secret === undefined) return res.status(400).send('missing secret');
     await resolveAndPerformAction(req, res, async (selector) => {
-      await getActivePage().fill(selector, secret);
+      await activePage.fill(selector, secret);
       secrets.add(secret);
     }, 'fill-secret');
   });
@@ -358,11 +349,11 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
     await resolveAndPerformAction(req, res, async (selector) => {
       if (process.env.BR_HUMANLIKE === 'true') {
         for (const char of text) {
-          await getActivePage().type(selector, char);
+          await activePage.type(selector, char);
           await humanDelay(30, 80);
         }
       } else {
-        await getActivePage().type(selector, text);
+        await activePage.type(selector, text);
       }
     }, 'type', { text });
   });
@@ -371,7 +362,7 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
     const { key } = req.body;
     if (!key) return res.status(400).send('missing key');
     try {
-      await getActivePage().keyboard.press(key);
+      await activePage.keyboard.press(key);
       record('press', { key });
       res.send('ok');
     } catch (err) {
@@ -389,7 +380,7 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
 
       if (selector) {
         // Use explicit selector if provided
-        const { element, actualSelector } = await resolveSelector(getActivePage(), selector);
+        const { element, actualSelector } = await resolveSelector(activePage, selector);
         searchInput = element;
         foundSelector = actualSelector;
       } else {
@@ -405,7 +396,7 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
         ];
 
         for (const sel of searchSelectors) {
-          const element = await getActivePage().$(sel);
+          const element = await activePage.$(sel);
           if (element) {
             searchInput = element;
             foundSelector = sel;
@@ -421,7 +412,7 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
       await humanDelay(50, 150);
       await searchInput.fill(query);
       await humanDelay(50, 150);
-      await getActivePage().keyboard.press('Enter');
+      await activePage.keyboard.press('Enter');
 
       record('search', { query, selector: foundSelector });
       res.json({ status: 'ok', selector: foundSelector });
@@ -434,7 +425,7 @@ Try using --selector to specify the search input explicitly.`);
 
   app.post('/next-chunk', async (req, res) => {
     try {
-      await getActivePage().evaluate(() => {
+      await activePage.evaluate(() => {
         window.scrollBy(0, window.innerHeight);
       });
       record('next-chunk');
@@ -446,7 +437,7 @@ Try using --selector to specify the search input explicitly.`);
 
   app.post('/prev-chunk', async (req, res) => {
     try {
-      await getActivePage().evaluate(() => {
+      await activePage.evaluate(() => {
         window.scrollBy(0, -window.innerHeight);
       });
       record('prev-chunk');
@@ -459,7 +450,7 @@ Try using --selector to specify the search input explicitly.`);
   app.post('/click', async (req, res) => {
     await resolveAndPerformAction(req, res, async (selector) => {
       await humanDelay(50, 150);
-      await getActivePage().click(selector);
+      await activePage.click(selector);
     }, 'click');
   });
 
@@ -476,13 +467,13 @@ Try using --selector to specify the search input explicitly.`);
         file = path.resolve(req.query.path);
       } else {
         // Generate default filename with domain
-        const url = new URL(getActivePage().url());
+        const url = new URL(activePage.url());
         const domain = url.hostname.replace(/[^a-zA-Z0-9.-]/g, '');
         file = path.join(dir, `shot-${domain}-${Date.now()}.png`);
       }
 
       const fullPage = req.query.fullPage === 'true';
-      await getActivePage().screenshot({ path: file, fullPage });
+      await activePage.screenshot({ path: file, fullPage });
       record('screenshot', { fullPage, path: file });
       res.send(file);
     } catch (err) {
@@ -492,7 +483,7 @@ Try using --selector to specify the search input explicitly.`);
 
   app.get('/html', async (req, res) => {
     try {
-      let html = await getActivePage().content();
+      let html = await activePage.content();
       for (const secret of secrets) {
         if (!secret) continue;
         html = html.split(secret).join('***');
@@ -514,7 +505,7 @@ Try using --selector to specify the search input explicitly.`);
 
   app.get('/tree', async (req, res) => {
     try {
-      const page = getActivePage();
+      const page = activePage;
       const session = await page.context().newCDPSession(page);
       await session.send('DOM.enable');
       await session.send('Accessibility.enable');
@@ -629,7 +620,7 @@ Try using --selector to specify the search input explicitly.`);
     const { script } = req.body;
     if (!script) return res.status(400).send('missing script');
     try {
-      const result = await getActivePage().evaluate((scriptToRun) => {
+      const result = await activePage.evaluate((scriptToRun) => {
         return eval(scriptToRun);
       }, script);
       record('eval', { script });
@@ -642,7 +633,7 @@ Try using --selector to specify the search input explicitly.`);
 
   app.post('/extract-text', async (req, res) => {
     try {
-      const page = getActivePage();
+      const page = activePage;
       const { selector } = req.body;
 
       let resolvedSelector = null;

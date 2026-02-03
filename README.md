@@ -6,8 +6,17 @@
 <h1 align="center">Browser CLI </h1>
 
 **Fork of [browsemake/browser-cli](https://github.com/browsemake/browser-cli) with additional features:**
-- JavaScript execution (`br eval`) for running custom scripts on web pages
-- Enhanced screenshot options with custom paths and full-page capture
+- Stealth mode via [patchright](https://github.com/nicenemo/patchright) (replaces playwright-extra + stealth plugin)
+- Headless mode with configurable viewport (`--headless`, `--viewport`)
+- Foreground daemon mode (`--foreground`)
+- Human-like interaction delays (`--humanlike`)
+- Cloudflare/SiteGround challenge detection and auto-wait
+- CSS selector support (in addition to XPath and view-tree IDs)
+- Smart search input detection (`br fill-search`)
+- Text extraction (`br extract-text`)
+- JSON-structured accessibility tree output
+- Daemon status in `--help`, improved startup reliability
+- JavaScript execution (`br eval`)
 - Ad blocking with configurable filter levels and custom blocklists
 
 <hr><br>
@@ -88,7 +97,17 @@ Search for job posting
 br start
 ```
 
-If starting the daemon fails (for example due to missing Playwright browsers),
+For headless mode (without a visible browser window):
+```bash
+br start --headless
+```
+
+For headless mode with custom viewport size:
+```bash
+br start --headless --viewport 1920x1080
+```
+
+If starting the daemon fails (for example due to missing browsers),
 the CLI prints the error output so you can diagnose the issue.
 
 ### Navigate to a URL
@@ -102,7 +121,7 @@ br goto https://example.com
 br click "button.submit"
 ```
 
-Commands that accept a CSS selector (like `click`, `fill`, `scrollIntoView`, `type`) can also accept a numeric ID. These IDs are displayed in the output of `br view-tree` and allow for direct interaction with elements identified in the tree.
+Commands that accept a selector (like `click`, `fill`, `scrollIntoView`, `type`) support CSS selectors, XPath expressions, and numeric IDs from `br view-tree`.
 
 ### Scroll element into view
 
@@ -205,25 +224,41 @@ br tabs
 br switch-tab 1
 ```
 
-### Start daemon with ad blocking
+### Start daemon with options
 
 ```bash
+# Run in headless mode
+br start --headless
+
+# Headless with custom viewport
+br start --headless --viewport 1920x1080
+
 # Enable ad blocking (ads + tracking)
 br start --adblock
 
 # Full protection (ads + tracking + annoyances + cookies)
 br start --adblock --adblock-base full
 
-# Use custom filter lists only (can be URLs or local files)
-br start --adblock none --adblock-lists https://example.com/list1.txt,/path/to/local-list.txt
+# Combine headless mode with ad blocking
+br start --headless --adblock
+
+# Use custom filter lists (URLs or local files)
+br start --adblock --adblock-lists https://example.com/list1.txt,/path/to/local-list.txt
+
+# Human-like interaction delays
+br start --humanlike
 ```
 
 **Options:**
+- `--headless` - Run the browser in headless mode (without a visible GUI)
+- `--viewport <size>` - Set viewport size for headless mode (format: WIDTHxHEIGHT) [default: 1280x720]
+- `--foreground` - Run daemon in foreground (attached to terminal)
+- `--humanlike` - Add random delays to simulate human-like interactions
 - `--adblock` - Enable ad blocking
-- `--adblock-base <level>` - Base filter level: `none`, `adsandtrackers`, `full` (ads + trackers + annoyances + cookies), or `ads` [default: `adsandtrackers`]
+- `--adblock-base <level>` - Base filter level: `none`, `adsandtrackers`, `full`, or `ads` [default: `adsandtrackers`]
 - `--adblock-lists <paths>` - Comma-separated additional filter list URLs or local file paths
 
-Ad blocking is powered by [@ghostery/adblocker-playwright](https://github.com/ghostery/adblocker) with blocklists from EasyList, EasyPrivacy, and uBlock Origin.
+Ad blocking is powered by [@ghostery/adblocker-playwright](https://github.com/ghostery/adblocker) with blocklists from EasyList, EasyPrivacy, and uBlock Origin. For scriptlet compatibility, see the [compatibility matrix](https://github.com/ghostery/adblocker/wiki/Compatibility-Matrix).
 
 ### Execute JavaScript
 

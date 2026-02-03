@@ -21,12 +21,15 @@ function getRunningPid() {
 function send(path, method = 'GET', body) {
   return new Promise((resolve, reject) => {
     const data = body ? JSON.stringify(body) : null;
+    const headers = data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {};
+    headers['Connection'] = 'close';
+
     const req = http.request({
       hostname: 'localhost',
       port: PORT,
       path,
       method,
-      headers: data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {}
+      headers
     }, (res) => {
       let out = '';
       res.on('data', chunk => out += chunk);
@@ -34,7 +37,12 @@ function send(path, method = 'GET', body) {
         if (res.statusCode >= 400) {
           reject(out);
         } else {
-          resolve(out);
+          try {
+            const parsed = JSON.parse(out);
+            resolve(parsed);
+          } catch {
+            resolve(out);
+          }
         }
       });
     });
@@ -44,6 +52,7 @@ function send(path, method = 'GET', body) {
       } else {
         console.log('Unknown error, try start the daemon with "br start":');
         console.error(e);
+        reject(e);
       }
     });
     if (data) req.write(data);
@@ -51,12 +60,38 @@ function send(path, method = 'GET', body) {
   });
 }
 
+function asyncAction(fn) {
+  return async (...args) => {
+    try {
+      await fn(...args);
+    } catch (err) {
+      console.error('Error:', err);
+      process.exit(1);
+    }
+  };
+}
+
+// Check daemon status for help display
+function getDaemonStatus() {
+  const pid = getRunningPid();
+  return pid ? `running (PID: ${pid})` : 'not running';
+}
+
+// Customize help to show daemon status
+program.addHelpText('before', () => {
+  return `\nDaemon status: ${getDaemonStatus()}\n`;
+});
+
 program
   .command('start')
   .description('Start the headless browser daemon process.')
+  .option('--headless', 'Run the browser in headless mode (without a visible GUI)')
+  .option('--viewport <size>', 'Set viewport size for headless mode (e.g., 1920x1080)', '1280x720')
   .option('--adblock', 'Enable ad blocking (blocks ads, trackers, and annoyances)')
   .option('--adblock-base <level>', 'Base filter level: none, adsandtrackers, full, or ads (default: adsandtrackers)')
   .option('--adblock-lists <paths>', 'Comma-separated list of additional filter list URLs or file paths')
+  .option('--foreground', 'Run daemon in foreground (attached to terminal, not detached)')
+  .option('--humanlike', 'Add random delays to simulate human-like interactions')
   .action(async (opts) => {
     const pid = getRunningPid();
     if (pid) {
@@ -82,6 +117,22 @@ program
 
     // Prepare environment variables for daemon
     const env = { ...process.env };
+    if (opts.headless) {
+      env.BR_HEADLESS = 'true';
+      console.log('Running in headless mode');
+
+      // Parse viewport size (default: 1280x720)
+      if (opts.viewport) {
+        const [width, height] = opts.viewport.split('x').map(n => parseInt(n, 10));
+        if (isNaN(width) || isNaN(height)) {
+          console.error('Invalid viewport size format. Please use WIDTHxHEIGHT (e.g., 1920x1080)');
+          process.exit(1);
+        }
+        env.BR_VIEWPORT_WIDTH = width.toString();
+        env.BR_VIEWPORT_HEIGHT = height.toString();
+        console.log(`Viewport size: ${width}x${height}`);
+      }
+    }
     if (opts.adblock) {
       env.BR_ADBLOCK = 'true';
       console.log('Ad blocking enabled');
@@ -91,64 +142,97 @@ program
       console.log('Base filter level:', opts.adblockBase);
     }
     if (opts.adblockLists) {
+      // Validate additional filter list files
+      const adblockLists = opts.adblockLists.split(',');
+      let invalidLists = [];
+
+      for (const list of adblockLists) {
+        const trimmedList = list.trim();
+        // Skip URLs, only validate file paths
+        if (!trimmedList.startsWith('http://') && !trimmedList.startsWith('https://')) {
+          if (!fs.existsSync(trimmedList)) {
+            invalidLists.push(trimmedList);
+          }
+        }
+      }
+
+      if (invalidLists.length > 0) {
+        console.error(`Error: Filter list file(s) not found: ${invalidLists.join(', ')}`);
+        process.exit(1);
+      }
+
       env.BR_ADBLOCK_LISTS = opts.adblockLists;
       console.log('Additional filter lists:', opts.adblockLists);
     }
+    if (opts.humanlike) {
+      env.BR_HUMANLIKE = 'true';
+      console.log('Human-like mode enabled');
+    }
 
-    const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {
-      detached: true,
-      stdio: ['pipe', 'pipe', 'pipe'],
-      env
-    });
+    if (opts.foreground) {
+      // Run in foreground - don't detach, inherit stdio
+      console.log('Starting daemon in foreground mode...');
+      const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {
+        detached: false,
+        stdio: 'inherit',
+        env
+      });
 
-    let stdout = '';
-    let stderr = '';
+      fs.writeFileSync(PID_FILE, String(child.pid));
 
-    const timeout = setTimeout(() => {
-      console.error('Daemon failed to start in a timely manner.');
-      if (stderr.trim()) console.error('Error output:\n', stderr.trim());
-      process.exit(1);
-    }, 5000);
+      child.on('exit', () => {
+        try { fs.unlinkSync(PID_FILE); } catch {}
+      });
 
-    child.stdout.on('data', data => {
-      stdout += data.toString();
-      if (stdout.includes('br daemon running')) {
-        clearTimeout(timeout);
-        fs.writeFileSync(PID_FILE, String(child.pid));
-        child.unref();
-        console.log('Daemon started successfully.');
-        process.exit(0);
-      }
-    });
+    } else {
+      // Run in background - detached mode
+      const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {
+        detached: true,
+        stdio: 'ignore',
+        env
+      });
 
-    child.stderr.on('data', data => {
-      stderr += data.toString();
-    });
+      child.unref();
+      fs.writeFileSync(PID_FILE, String(child.pid));
 
-    child.on('exit', code => {
-      if (stdout.includes('br daemon running')) return;
-      clearTimeout(timeout);
-      console.error(`Daemon exited unexpectedly with code ${code}.`);
-      if (stderr.trim()) console.error('Error output:\n', stderr.trim());
-      process.exit(1);
-    });
+      // Poll health endpoint to confirm daemon is ready
+      const startTime = Date.now();
+      const checkHealth = async () => {
+        if (Date.now() - startTime > 5000) {
+          console.error('Daemon failed to start in a timely manner.');
+          process.exit(1);
+        }
+
+        try {
+          await send('/health');
+          console.log('Daemon started successfully.');
+          process.exit(0);
+        } catch (err) {
+          setTimeout(checkHealth, 100);
+        }
+      };
+
+      setTimeout(checkHealth, 100);
+    }
   });
 
 program
   .command('stop')
   .description('Stop the headless browser daemon process.')
-  .action(() => {
+  .action(async () => {
     const pid = getRunningPid();
-    if (!pid) {
-      console.log('Daemon is not running.');
+    if (pid) {
+      process.kill(pid);
+      try { fs.unlinkSync(PID_FILE); } catch {}
+      console.log('Daemon stopped.');
       return;
     }
+    // No PID file, but daemon might be running from another install - try to stop via API
     try {
-      process.kill(pid);
-      fs.unlinkSync(PID_FILE);
+      await send('/shutdown', 'POST');
       console.log('Daemon stopped.');
-    } catch (err) {
-      console.error('Failed to stop daemon:', err.message);
+    } catch {
+      console.log('Daemon is not running.');
     }
   });
 
@@ -156,141 +240,116 @@ program
   .command('goto')
   .description('Navigate the browser to a specific URL.')
   .argument('<url>', 'The full URL to navigate to (e.g., "https://example.com").')
-  .action(async (url) => {
-    try {
-      // Auto-add https:// if no protocol is specified
-      if (!url.startsWith('http://') && !url.startsWith('https://')) {
-        url = 'https://' + url;
-      }
-      await send('/goto', 'POST', { url });
-      console.log('Navigated to', url);
-    } catch (error) {
-      console.error('Error navigating:', error);
+  .action(asyncAction(async (url) => {
+    // Auto-add https:// if no protocol is specified
+    if (!url.startsWith('http://') && !url.startsWith('https://')) {
+      url = 'https://' + url;
     }
-  });
+    await send('/goto', 'POST', { url });
+    console.log('Navigated to', url);
+  }));
 
 program
   .command('scrollIntoView')
   .description('Scroll the page until a specific element is in view.')
-  .argument('<selectorOrId>', 'The CSS selector or node ID for the target element.')
-  .action(async (selector) => {
-    try {
-      await send('/scroll-into-view', 'POST', { selector });
-      console.log('Scrolled', selector, 'into view.');
-    } catch (error) {
-      console.error('Error scrolling into view:', error);
-    }
-  });
+  .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
+  .action(asyncAction(async (selector) => {
+    await send('/scroll-into-view', 'POST', { selector });
+    console.log('Scrolled', selector, 'into view.');
+  }));
 
 program
   .command('scrollTo')
   .description('Scroll the page to a given percentage of its total height.')
   .argument('<percentage>', 'A number from 0 to 100.')
-  .action(async (percentage) => {
-    try {
-      await send('/scroll-to', 'POST', { percentage });
-      console.log(`Scrolled to ${percentage}%.`);
-    } catch (error) {
-      console.error('Error scrolling:', error);
-    }
-  });
+  .action(asyncAction(async (percentage) => {
+    await send('/scroll-to', 'POST', { percentage });
+    console.log(`Scrolled to ${percentage}%.`);
+  }));
 
 program
   .command('fill')
   .description('Fill a form field with the provided text.')
-  .argument('<selectorOrId>', 'The CSS selector or node ID for the input field.')
+  .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
   .argument('<text>', 'The text to fill the field with.')
-  .action(async (selector, text) => {
-    try {
-      await send('/fill', 'POST', { selector, text });
-      console.log('Filled', selector);
-    } catch (error) {
-      console.error('Error filling field:', error);
-    }
-  });
+  .action(asyncAction(async (selector, text) => {
+    await send('/fill', 'POST', { selector, text });
+    console.log('Filled', selector);
+  }));
 
 program
   .command('fill-secret')
   .description('Fill a form field with a value from a specified environment variable. The value is masked in logs.')
-  .argument('<selectorOrId>', 'The CSS selector or node ID for the input field.')
+  .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
   .argument('<envVar>', 'The name of the environment variable containing the secret.')
-  .action(async (selector, envVar) => {
+  .action(asyncAction(async (selector, envVar) => {
     const secret = process.env[envVar];
     if (!secret) {
       console.error(`Error: Environment variable "${envVar}" is not set.`);
-      return;
+      process.exit(1);
     }
-    try {
-      await send('/fill-secret', 'POST', { selector, secret });
-      console.log('Filled secret value into', selector);
-    } catch (error) {
-      console.error('Error filling secret field:', error);
-    }
-  });
+    await send('/fill-secret', 'POST', { selector, secret });
+    console.log('Filled secret value into', selector);
+  }));
 
 program
   .command('type')
   .description('Simulate typing text into a form field, character by character.')
-  .argument('<selectorOrId>', 'The CSS selector or node ID for the input field.')
+  .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
   .argument('<text>', 'The text to type into the field.')
-  .action(async (selector, text) => {
-    try {
-      await send('/type', 'POST', { selector, text });
-      console.log('Typed text into', selector);
-    } catch (error) {
-      console.error('Error typing into field:', error);
-    }
-  });
+  .action(asyncAction(async (selector, text) => {
+    await send('/type', 'POST', { selector, text });
+    console.log('Typed text into', selector);
+  }));
 
 program
   .command('press')
   .description("Simulate a single key press (e.g., 'Enter', 'Tab').")
   .argument('<key>', "The key to press, as defined in Playwright's documentation.")
-  .action(async (key) => {
-    try {
-      await send('/press', 'POST', { key });
-      console.log('Pressed', key);
-    } catch (error) {
-      console.error('Error pressing key:', error);
+  .action(asyncAction(async (key) => {
+    await send('/press', 'POST', { key });
+    console.log('Pressed', key);
+  }));
+
+program
+  .command('fill-search')
+  .description('Fill a search input and submit the query.')
+  .argument('<query>', 'The search query to enter.')
+  .option('-s, --selector <selector>', 'Explicit CSS selector, XPath expression, or numeric ID from view-tree for the search input')
+  .action(asyncAction(async (query, opts) => {
+    const body = { query };
+    if (opts.selector) body.selector = opts.selector;
+    const response = await send('/fill-search', 'POST', body);
+    console.log('Searched for:', query);
+    if (response.selector) {
+      console.log('Used selector:', response.selector);
     }
-  });
+  }));
 
 program
   .command('nextChunk')
   .description('Scroll down by one viewport height to view the next chunk of content.')
-  .action(async () => {
-    try {
-      await send('/next-chunk', 'POST');
-      console.log('Scrolled to the next chunk.');
-    } catch (error) {
-      console.error('Error scrolling to next chunk:', error);
-    }
-  });
+  .action(asyncAction(async () => {
+    await send('/next-chunk', 'POST');
+    console.log('Scrolled to the next chunk.');
+  }));
 
 program
   .command('prevChunk')
   .description('Scroll up by one viewport height to view the previous chunk of content.')
-  .action(async () => {
-    try {
-      await send('/prev-chunk', 'POST');
-      console.log('Scrolled to the previous chunk.');
-    } catch (error) {
-      console.error('Error scrolling to previous chunk:', error);
-    }
-  });
+  .action(asyncAction(async () => {
+    await send('/prev-chunk', 'POST');
+    console.log('Scrolled to the previous chunk.');
+  }));
 
 program
   .command('click')
-  .description('Click an element matching the specified CSS selector.')
-  .argument('<selectorOrId>', 'The CSS selector or node ID for the element to click.')
-  .action(async (selector) => {
-    try {
-      await send('/click', 'POST', { selector });
-      console.log('Clicked', selector);
-    } catch (error) {
-      console.error('Error clicking element:', error);
-    }
-  });
+  .description('Click an element. Supports CSS selectors, XPath, and view-tree IDs.')
+  .argument('<selectorOrId>', 'CSS selector (e.g., "input"), XPath expression, or numeric ID from view-tree.')
+  .action(asyncAction(async (selector) => {
+    await send('/click', 'POST', { selector });
+    console.log('Clicked', selector);
+  }));
 
 program
   .command('screenshot')
@@ -298,15 +357,11 @@ program
   .option('-f, --full-page', 'Capture the full scrollable page instead of just the viewport')
   .option('-o, --output <path>', 'Custom file path for the screenshot')
   .action(async (opts) => {
-    try {
-      const fullPage = opts.fullPage || false;
-      const params = new URLSearchParams({ fullPage });
-      if (opts.output) params.append('path', opts.output);
-      const file = await send(`/screenshot?${params}`);
-      console.log('Screenshot saved to:', file);
-    } catch (error) {
-      console.error('Error taking screenshot:', error);
-    }
+    const fullPage = opts.fullPage || false;
+    const params = new URLSearchParams({ fullPage });
+    if (opts.output) params.append('path', opts.output);
+    const file = await send(`/screenshot?${params}`);
+    console.log('Screenshot saved to:', file);
   });
 
 program
@@ -314,28 +369,24 @@ program
   .description('Output the full HTML source of the current page (paginated, 5000 chars per page).')
   .option('-p, --page <number>', 'Page number to view', '1')
   .action(async (opts) => {
-    try {
-      const page = Number(opts.page) || 1;
-      const html = await send(`/html?page=${page}`);
-      if (html.length === 0) {
-        console.log('No HTML content found for this page.');
-        return;
-      }
-      const PAGE_SIZE = 5000;
-      const totalPages = Math.ceil(html.length / PAGE_SIZE);
-      const start = (page - 1) * PAGE_SIZE;
-      const end = start + PAGE_SIZE;
-      const chunk = html.slice(start, end);
-      console.log(chunk);
-      console.log(`\n--- Page ${page} of ${totalPages} ---`);
-      if (totalPages > 1) {
-        console.log('Use --page <n> to view a different page.');
-      }
-      if (html.length > PAGE_SIZE) {
-        console.log('Hint: If the HTML is too large to view comfortably, try the "view-tree" command for a structured overview.');
-      }
-    } catch (error) {
-      console.error('Error viewing HTML:', error);
+    const page = Number(opts.page) || 1;
+    const html = await send(`/html?page=${page}`);
+    if (html.length === 0) {
+      console.log('No HTML content found for this page.');
+      return;
+    }
+    const PAGE_SIZE = 5000;
+    const totalPages = Math.ceil(html.length / PAGE_SIZE);
+    const start = (page - 1) * PAGE_SIZE;
+    const end = start + PAGE_SIZE;
+    const chunk = html.slice(start, end);
+    console.log(chunk);
+    console.log(`\n--- Page ${page} of ${totalPages} ---`);
+    if (totalPages > 1) {
+      console.log('Use --page <n> to view a different page.');
+    }
+    if (html.length > PAGE_SIZE) {
+      console.log('Hint: If the HTML is too large to view comfortably, try the "view-tree" command for a structured overview.');
     }
   });
 
@@ -344,35 +395,47 @@ program
   .alias('hist')
   .description('Display the history of actions performed in the current session.')
   .action(async () => {
-    try {
-      const hist = await send('/history');
-      console.log(hist);
-    } catch (error) {
-      console.error('Error viewing history:', error);
-    }
+    const hist = await send('/history');
+    console.log(hist);
   });
 
 program
   .command('clear-history')
   .description("Clear the session's action history.")
   .action(async () => {
-    try {
-      await send('/history/clear', 'POST');
-      console.log('History cleared.');
-    } catch (error) {
-      console.error('Error clearing history:', error);
-    }
+    await send('/history/clear', 'POST');
+    console.log('History cleared.');
   });
-  
+
 program
   .command('view-tree')
   .description("Display a hierarchical tree of the page's accessibility and DOM nodes.")
   .action(async () => {
-    try {
-      const tree = await send('/tree');
+    const response = await send('/tree');
+    let tree = response.tree;
+
+    // Handle the case where tree is still a string (daemon not restarted yet)
+    if (typeof tree === 'string') {
       console.log(tree);
-    } catch (error) {
-      console.error('Error viewing tree:', error);
+      return;
+    }
+
+    function displayNode(node, indent = 0) {
+      const parts = [`${'  '.repeat(indent)}[${node.id}]`];
+      if (node.role) parts.push(node.role);
+      if (node.tag) parts.push(node.tag);
+      if (node.name) parts.push(`: ${node.name}`);
+      console.log(parts.join(' '));
+
+      if (node.children && node.children.length > 0) {
+        node.children.forEach(child => displayNode(child, indent + 1));
+      }
+    }
+
+    if (tree) {
+      displayNode(tree);
+    } else {
+      console.log('No tree data found');
     }
   });
 
@@ -380,28 +443,20 @@ program
   .command('tabs')
   .description('List all open tabs (pages) in the browser daemon.')
   .action(async () => {
-    try {
-      const tabs = JSON.parse(await send('/tabs'));
-      tabs.forEach(tab => {
-        console.log(`${tab.isActive ? '*' : ' '}${tab.index}: ${tab.title} (${tab.url})`);
-      });
-    } catch (error) {
-      console.error('Error listing tabs:', error);
-    }
+    const tabs = await send('/tabs');
+    tabs.forEach(tab => {
+      console.log(`${tab.isActive ? '*' : ' '}${tab.index}: ${tab.title} (${tab.url})`);
+    });
   });
 
 program
   .command('switch-tab')
   .description('Switch to a different open tab by its index.')
   .argument('<index>', 'The index of the tab to switch to.')
-  .action(async (index) => {
-    try {
-      await send('/tabs/switch', 'POST', { index: Number(index) });
-      console.log('Switched to tab', index);
-    } catch (error) {
-      console.error('Error switching tab:', error);
-    }
-  });
+  .action(asyncAction(async (index) => {
+    await send('/tabs/switch', 'POST', { index: Number(index) });
+    console.log('Switched to tab', index);
+  }));
 
 program
   .command('eval')
@@ -409,40 +464,58 @@ program
   .argument('[script]', 'JavaScript code to execute (if not using --file).')
   .option('-f, --file <path>', 'Path to a JavaScript file to execute.')
   .action(async (script, opts) => {
-    try {
-      let scriptToRun = script;
+    let scriptToRun = script;
 
-      if (opts.file) {
-        // Read JavaScript from file
-        if (!fs.existsSync(opts.file)) {
-          console.error(`Error: File not found: ${opts.file}`);
-          return;
-        }
-        scriptToRun = fs.readFileSync(opts.file, 'utf8');
-      }
-
-      if (!scriptToRun) {
-        console.error('Error: No script provided. Use either a script argument or --file option.');
+    if (opts.file) {
+      // Read JavaScript from file
+      if (!fs.existsSync(opts.file)) {
+        console.error(`Error: File not found: ${opts.file}`);
         return;
       }
+      scriptToRun = fs.readFileSync(opts.file, 'utf8');
+    }
 
-      const response = await send('/eval', 'POST', { script: scriptToRun });
-      const { result } = JSON.parse(response);
+    if (!scriptToRun) {
+      console.error('Error: No script provided. Use either a script argument or --file option.');
+      return;
+    }
 
-      // Pretty print the result
-      if (result === undefined) {
-        console.log('undefined');
-      } else if (result === null) {
-        console.log('null');
-      } else if (typeof result === 'object') {
-        console.log(JSON.stringify(result, null, 2));
-      } else {
-        console.log(result);
-      }
-    } catch (error) {
-      console.error('Error executing script:', error);
+    const response = await send('/eval', 'POST', { script: scriptToRun });
+
+    // Pretty print the result
+    const { result } = response;
+    if (result === undefined) {
+      console.log('undefined');
+    } else if (result === null) {
+      console.log('null');
+    } else if (typeof result === 'object') {
+      console.log(JSON.stringify(result, null, 2));
+    } else {
+      console.log(result);
     }
   });
+
+program
+  .command('extract-text')
+  .description('Extract visible text from the page or specific elements.')
+  .option('-s, --selector <selector>', 'CSS selector, XPath expression, or numeric ID from view-tree to extract text from specific elements')
+  .action(asyncAction(async (opts) => {
+    const body = {};
+    if (opts.selector) body.selector = opts.selector;
+    const response = await send('/extract-text', 'POST', body);
+    console.log(response.text);
+    if (response.selector) {
+      console.log('(using selector:', response.selector + ')');
+    }
+  }));
+
+// Show help for unknown commands
+program.on('command:*', (operands) => {
+  console.error(`error: unknown command '${operands[0]}'`);
+  console.log();
+  program.outputHelp();
+  process.exit(1);
+});
 
 try {
   program.parse();

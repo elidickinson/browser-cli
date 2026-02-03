@@ -1,8 +1,9 @@
-name: Daily Release
+name: Weekly Release
 
 on:
   schedule:
-    - cron: '0 0 * * *'
+    # Runs weekly on Sunday at 00:00 UTC
+    - cron: '0 0 * * 0'
 
 jobs:
   create-release:
@@ -14,6 +15,6 @@ jobs:
       - name: Create release
         uses: softprops/action-gh-release@de2c0eb89ae2a093876385947365aca7b0e5f844
         with:
-          tag_name: daily-${{ github.run_id }}
-          name: Daily Release ${{ github.run_id }}
-          body: Automated daily release.
+          tag_name: weekly-${{ github.run_id }}
+          name: Weekly Release ${{ github.run_id }}
+          body: Automated weekly release.

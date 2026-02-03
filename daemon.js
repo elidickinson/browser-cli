@@ -663,14 +663,7 @@ Try using --selector to specify the search input explicitly.`);
             return `[Element ${index + 1}]\n${text}`;
           }).join('\n\n---\n\n');
         } else {
-          const clone = document.body.cloneNode(true);
-          clone.querySelectorAll('script, style, noscript, [hidden], [style*="display:none"], [style*="visibility:hidden"], [style*="opacity:0"]').forEach(el => el.remove());
-
-          if (Date.now() - startTime > timeout) {
-            throw new Error('Timeout during extraction');
-          }
-
-          return clone.innerText || '';
+          return document.body.innerText || '';
         }
       }, resolvedSelector);
 

@@ -32,7 +32,8 @@ https://www.npmjs.com/package/@browsemake/browser-cli
 
 ## Install
 ```bash
-npm install -g @browsemake/browser-cli
+npm install -g github:elidickinson/browser-cli
+npx patchright install chromium
 ```
 
 ## Usage

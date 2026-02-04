@@ -169,6 +169,13 @@ program
       console.log('Human-like mode enabled');
     }
 
+    // Check that browser binary is installed
+    const { chromium } = require('patchright');
+    if (!fs.existsSync(chromium.executablePath())) {
+      console.error('Browser not found. Run: npx patchright install chromium');
+      process.exit(1);
+    }
+
     if (opts.foreground) {
       // Run in foreground - don't detach, inherit stdio
       console.log('Starting daemon in foreground mode...');

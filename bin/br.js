@@ -369,6 +369,7 @@ program
     if (opts.output) params.append('path', opts.output);
     const file = await send(`/screenshot?${params}`);
     console.log('Screenshot saved to:', file);
+    console.log('Tip: view-tree can be a much more efficient way to extract info from a page.');
   });
 
 program

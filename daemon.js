@@ -73,6 +73,39 @@ async function initAdblocker() {
 let lastIdToXPath = {}; // Global variable to store the last idToXPath mapping
 const secrets = new Set();
 const history = [];
+const consoleLogs = [];
+const MAX_CONSOLE_LOGS = 1000;
+
+function addConsoleLog(entry) {
+  consoleLogs.push(entry);
+  if (consoleLogs.length > MAX_CONSOLE_LOGS) consoleLogs.shift();
+}
+
+async function attachConsoleListeners(page, getTabIndex) {
+  const session = await page.context().newCDPSession(page);
+  await session.send('Runtime.enable');
+  session.on('Runtime.consoleAPICalled', event => {
+    const text = event.args.map(a => a.value !== undefined ? String(a.value) : a.description || '').join(' ');
+    addConsoleLog({
+      type: event.type,
+      text,
+      timestamp: new Date().toISOString(),
+      url: page.url(),
+      tab: getTabIndex()
+    });
+  });
+  session.on('Runtime.exceptionThrown', event => {
+    const desc = event.exceptionDetails.exception?.description
+      || event.exceptionDetails.text || 'Unknown error';
+    addConsoleLog({
+      type: 'pageerror',
+      text: desc,
+      timestamp: new Date().toISOString(),
+      url: page.url(),
+      tab: getTabIndex()
+    });
+  });
+}
 
 async function detectChallengePage(page) {
   try {
@@ -197,11 +230,13 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
   pages.push(initialPage);
   activePage = initialPage;
   if (adblocker) await adblocker.enableBlockingInPage(initialPage);
+  await attachConsoleListeners(initialPage, () => pages.indexOf(initialPage));
 
   context.on('page', async newPage => {
     pages = await context.pages();
     activePage = newPage;
     if (adblocker) await adblocker.enableBlockingInPage(newPage);
+    await attachConsoleListeners(newPage, () => pages.indexOf(newPage));
   });
 
   context.on('framenavigated', async frame => {
@@ -285,11 +320,16 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
     const { url } = req.body;
     if (!url) return res.status(400).send('missing url');
     try {
+      const tab = pages.indexOf(activePage);
       await humanDelay(200, 400);
       await activePage.goto(url, {
         timeout: 30000,
         waitUntil: 'domcontentloaded'
       });
+      // Clear console logs for this tab on navigation
+      for (let i = consoleLogs.length - 1; i >= 0; i--) {
+        if (consoleLogs[i].tab === tab) consoleLogs.splice(i, 1);
+      }
       await humanDelay(200, 400);
       record('goto', { url });
       res.send('ok');
@@ -943,6 +983,25 @@ Try using --selector to specify the search input explicitly.`);
         await page.close();
       }
     }
+  });
+
+  app.get('/console', (req, res) => {
+    let logs = [...consoleLogs];
+    if (req.query.type) {
+      const types = req.query.type.split(',');
+      logs = logs.filter(l => types.includes(l.type));
+    }
+    if (req.query.tab !== undefined) {
+      const tab = parseInt(req.query.tab, 10);
+      logs = logs.filter(l => l.tab === tab);
+    }
+    if (req.query.clear === 'true') consoleLogs.length = 0;
+    res.json(logs);
+  });
+
+  app.post('/console/clear', (req, res) => {
+    consoleLogs.length = 0;
+    res.send('ok');
   });
 
   app.post('/shutdown', (req, res) => {

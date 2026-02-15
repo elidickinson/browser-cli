@@ -516,6 +516,47 @@ program
     }
   }));
 
+const consoleCmd = program
+  .command('console')
+  .description('Show captured browser console logs and errors.')
+  .option('-t, --type <types>', 'Filter by type(s), comma-separated (log,warning,error,info,debug,pageerror)')
+  .option('--tab <index>', 'Filter by tab index')
+  .option('-l, --limit <n>', 'Max entries to show (default: 50)')
+  .option('-c, --clear', 'Clear logs after displaying')
+  .action(asyncAction(async (opts) => {
+    const params = new URLSearchParams();
+    if (opts.type) params.append('type', opts.type);
+    if (opts.tab !== undefined) params.append('tab', opts.tab);
+    if (opts.clear) params.append('clear', 'true');
+    const allLogs = await send(`/console?${params}`);
+    if (allLogs.length === 0) {
+      console.log('No console logs captured.');
+      return;
+    }
+    const limit = parseInt(opts.limit, 10) || 50;
+    const logs = allLogs.slice(-limit);
+    const colors = { error: '\x1b[31m', warning: '\x1b[33m', pageerror: '\x1b[31m', info: '\x1b[36m', debug: '\x1b[90m' };
+    const reset = '\x1b[0m';
+    for (const entry of logs) {
+      const color = colors[entry.type] || '';
+      const ts = entry.timestamp.replace('T', ' ').replace(/\.\d+Z$/, '');
+      const tab = entry.tab >= 0 ? `[tab ${entry.tab}] ` : '';
+      console.log(`${color}[${ts}] ${tab}[${entry.type.toUpperCase()}] ${entry.text}${color ? reset : ''}`);
+    }
+    const remaining = allLogs.length - logs.length;
+    if (remaining > 0) {
+      console.log(`\n${logs.length} shown, ${remaining} more. Use --limit to see more.`);
+    }
+  }));
+
+consoleCmd
+  .command('clear')
+  .description('Clear captured console logs.')
+  .action(asyncAction(async () => {
+    await send('/console/clear', 'POST');
+    console.log('Console logs cleared.');
+  }));
+
 // Show help for unknown commands
 program.on('command:*', (operands) => {
   console.error(`error: unknown command '${operands[0]}'`);

@@ -1,73 +1,15 @@
 const express = require('express');
 const { chromium } = require('patchright');
-// Patchright has stealth features built-in
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
+const { initAdblocker } = require('./utils');
 
 // Optional ad blocking (off by default)
 // Enable with: BR_ADBLOCK=true br start
 // Base level: BR_ADBLOCK_BASE=none|adsandtrackers|full|ads
 // Additional lists: BR_ADBLOCK_LISTS=https://url1.txt,https://url2.txt
 let adblocker = null;
-
-async function initAdblocker() {
-  const { PlaywrightBlocker } = require('@ghostery/adblocker-playwright');
-  const fetch = require('cross-fetch');
-
-  const base = process.env.BR_ADBLOCK_BASE || 'adsandtrackers';
-  const additionalLists = process.env.BR_ADBLOCK_LISTS;
-
-  // Get base blocker
-  let blocker;
-  switch (base) {
-    case 'none':
-      blocker = PlaywrightBlocker.empty();
-      console.log('Ad blocking enabled (no base filters)');
-      break;
-    case 'full':
-      blocker = await PlaywrightBlocker.fromPrebuiltFull(fetch);
-      console.log('Ad blocking enabled (full: ads + tracking + annoyances + cookies)');
-      break;
-    case 'ads':
-      blocker = await PlaywrightBlocker.fromPrebuiltAdsOnly(fetch);
-      console.log('Ad blocking enabled (ads only)');
-      break;
-    case 'adsandtrackers':
-    default:
-      blocker = await PlaywrightBlocker.fromPrebuiltAdsAndTracking(fetch);
-      console.log('Ad blocking enabled (ads + tracking)');
-      break;
-  }
-
-  // Add additional lists if specified
-  if (additionalLists) {
-    const customLists = additionalLists.split(',').map(s => s.trim());
-
-    for (const listPath of customLists) {
-      let listContent;
-      if (listPath.startsWith('http://') || listPath.startsWith('https://')) {
-        const response = await fetch(listPath);
-        listContent = await response.text();
-      } else {
-        listContent = fs.readFileSync(listPath, 'utf8');
-      }
-
-      const filters = listContent
-        .split('\n')
-        .map(line => line.trim())
-        .filter(line => line.length > 0 && !line.startsWith('!'));
-
-      console.log(`Loaded ${listContent.split('\n').length} lines (${filters.length} active rules) from ${listPath}`);
-
-      blocker.updateFromDiff({ added: filters });
-
-      console.log(`Successfully applied custom list ${listPath}`);
-    }
-  }
-
-  adblocker = blocker;
-}
 
 let lastIdToXPath = {}; // Global variable to store the last idToXPath mapping
 const secrets = new Set();
@@ -106,46 +48,6 @@ async function attachConsoleListeners(page, getTabIndex) {
   });
 }
 
-async function detectChallengePage(page) {
-  try {
-    return await page.evaluate(() => {
-      // Cloudflare
-      if (document.title === 'Just a moment...' ||
-          window._cf_chl_opt ||
-          document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]') ||
-          (document.querySelector('meta[http-equiv="refresh"]') && document.title.includes('Just a moment'))) {
-        return 'cloudflare';
-      }
-
-      // SiteGround
-      if (document.title === 'Robot Challenge Screen' ||
-          window.sgchallenge ||
-          Array.from(document.querySelectorAll('script')).some(script =>
-            script.textContent.includes('sgchallenge'))) {
-        return 'siteground';
-      }
-
-      return false;
-    });
-  } catch (err) {
-    return false;
-  }
-}
-
-async function waitForChallengeBypass(page, maxWaitSeconds = 8) {
-  const startTime = Date.now();
-
-  while (Date.now() - startTime < maxWaitSeconds * 1000) {
-    const challenge = await detectChallengePage(page);
-    if (!challenge) {
-      return true;
-    }
-    await page.waitForTimeout(100);
-  }
-
-  return false;
-}
-
 function record(action, args = {}) {
   history.push({ action, args, timestamp: new Date().toISOString() });
 }
@@ -161,7 +63,7 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
 (async () => {
   // Initialize adblocker if enabled
   if (process.env.BR_ADBLOCK === 'true') {
-    await initAdblocker();
+    adblocker = await initAdblocker();
   }
   // Set viewport size for headless mode
   let viewport = null;
@@ -171,11 +73,13 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
     viewport = { width, height };
   }
 
-  const context = await chromium.launchPersistentContext(tmpUserDataDir, {
+  let context, browser;
+  context = await chromium.launchPersistentContext(tmpUserDataDir, {
     headless: process.env.BR_HEADLESS === 'true',
     viewport
   });
-  const browser = await context.browser(); // can be null with persistent contexts
+  browser = await context.browser(); // can be null with persistent contexts (browser managed internally)
+
   let pages = [];
   let activePage;
 
@@ -289,28 +193,28 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
   });
 
   async function resolveSelector(page, selector) {
-    let element;
-    let actualSelector = selector;
+  let element;
+  let actualSelector = selector;
 
-    // Handle numeric IDs from view-tree
-    if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
-      const xpath = lastIdToXPath[selector];
-      if (!xpath) throw new Error(`XPath not found for ID: ${selector}`);
-      element = await page.$(xpath);
-      actualSelector = xpath;
-    } else {
-      // Handle CSS selectors and XPath expressions
-      element = await page.$(selector);
-    }
-
-    if (!element) {
-      throw new Error(`Element not found for selector: ${selector}`);
-    }
-
-    return { element, actualSelector };
+  // Handle numeric IDs from view-tree
+  if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
+    const xpath = lastIdToXPath[selector];
+    if (!xpath) throw new Error(`XPath not found for ID: ${selector}`);
+    element = await page.$(xpath);
+    actualSelector = xpath;
+  } else {
+    // Handle CSS selectors and XPath expressions
+    element = await page.$(selector);
   }
 
-  async function resolveAndPerformAction(req, res, actionFn, recordAction, recordArgs = {}) {
+  if (!element) {
+    throw new Error(`Element not found for selector: ${selector}`);
+  }
+
+  return { element, actualSelector };
+}
+
+async function resolveAndPerformAction(req, res, actionFn, recordAction, recordArgs = {}) {
     let { selector } = req.body;
     if (!selector) return res.status(400).send('missing selector');
 
@@ -342,6 +246,7 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
     }
   }
 
+  // TODO: XPath selectors from numeric IDs won't work with querySelector
   app.post('/scroll-into-view', async (req, res) => {
     await resolveAndPerformAction(req, res, async (selector) => {
       await activePage.evaluate(sel => {

@@ -6,17 +6,8 @@
 <h1 align="center">Browser CLI </h1>
 
 **Fork of [browsemake/browser-cli](https://github.com/browsemake/browser-cli) with additional features:**
-- Stealth mode via [patchright](https://github.com/nicenemo/patchright) (replaces playwright-extra + stealth plugin)
-- Headless mode with configurable viewport (`--headless`, `--viewport`)
-- Foreground daemon mode (`--foreground`)
-- Human-like interaction delays (`--humanlike`)
-- Cloudflare/SiteGround challenge detection and auto-wait
-- CSS selector support (in addition to XPath and view-tree IDs)
-- Smart search input detection (`br fill-search`)
-- Text extraction (`br extract-text`)
-- JSON-structured accessibility tree output
-- Daemon status in `--help`, improved startup reliability
-- JavaScript execution (`br eval`)
+- JavaScript execution (`br eval`) for running custom scripts on web pages
+- Enhanced screenshot options with custom paths and full-page capture
 - Ad blocking with configurable filter levels and custom blocklists
 
 <hr><br>
@@ -37,6 +28,7 @@ https://www.npmjs.com/package/@browsemake/browser-cli
 - **AI first**: designed for LLM agent, readable view from HTML, and error hint
 - **Secure**: can be run locally, no credential passed to LLM 
 - **Robust**: browser persisted progress across session, and track history action for replay
+<br />
 
 ## Install
 ```bash
@@ -55,6 +47,20 @@ Use command line directly by human:
 
 ```bash
 br start
+br goto https://github.com/
+```
+
+For headless mode (without a visible browser window):
+
+```bash
+br start --headless
+br goto https://github.com/
+```
+
+For headless mode with custom viewport size:
+
+```bash
+br start --headless --viewport 1920x1080
 br goto https://github.com/
 ```
 
@@ -90,6 +96,8 @@ Search for job posting
 - **History tracking**: History tracking for replay and scripting
 - **Ad blocking**: Optional ad and tracker blocking with custom filter list support
 - **JavaScript injection**: Execute custom JavaScript code on web pages
+- **HTTP API**: REST API endpoint for taking screenshots programmatically
+- **Multi-screenshot**: Capture multiple screenshots with different dimensions from a single page load
 
 ## Command
 
@@ -108,7 +116,7 @@ For headless mode with custom viewport size:
 br start --headless --viewport 1920x1080
 ```
 
-If starting the daemon fails (for example due to missing browsers),
+If starting the daemon fails (for example due to missing Playwright browsers),
 the CLI prints the error output so you can diagnose the issue.
 
 ### Navigate to a URL
@@ -122,7 +130,7 @@ br goto https://example.com
 br click "button.submit"
 ```
 
-Commands that accept a selector (like `click`, `fill`, `scrollIntoView`, `type`) support CSS selectors, XPath expressions, and numeric IDs from `br view-tree`.
+Commands that accept a CSS selector (like `click`, `fill`, `scrollIntoView`, `type`) can also accept a numeric ID. These IDs are displayed in the output of `br view-tree` and allow for direct interaction with elements identified in the tree.
 
 ### Scroll element into view
 
@@ -228,10 +236,10 @@ br switch-tab 1
 ### Start daemon with options
 
 ```bash
-# Run in headless mode
+# Run in headless mode (without a visible GUI)
 br start --headless
 
-# Headless with custom viewport
+# Run in headless mode with custom viewport size (default: 1280x720)
 br start --headless --viewport 1920x1080
 
 # Enable ad blocking (ads + tracking)
@@ -243,23 +251,23 @@ br start --adblock --adblock-base full
 # Combine headless mode with ad blocking
 br start --headless --adblock
 
-# Use custom filter lists (URLs or local files)
-br start --adblock --adblock-lists https://example.com/list1.txt,/path/to/local-list.txt
+# Combine all options
+br start --headless --viewport 1920x1080 --adblock --adblock-base full
 
-# Human-like interaction delays
-br start --humanlike
+# Use custom filter lists only (can be URLs or local files)
+br start --adblock none --adblock-lists https://example.com/list1.txt,/path/to/local-list.txt
 ```
 
 **Options:**
 - `--headless` - Run the browser in headless mode (without a visible GUI)
-- `--viewport <size>` - Set viewport size for headless mode (format: WIDTHxHEIGHT) [default: 1280x720]
-- `--foreground` - Run daemon in foreground (attached to terminal)
-- `--humanlike` - Add random delays to simulate human-like interactions
+- `--viewport <size>` - Set viewport size for headless mode (format: WIDTHxHEIGHT, e.g., 1920x1080) [default: 1280x720]
 - `--adblock` - Enable ad blocking
-- `--adblock-base <level>` - Base filter level: `none`, `adsandtrackers`, `full`, or `ads` [default: `adsandtrackers`]
+- `--adblock-base <level>` - Base filter level: `none`, `adsandtrackers`, `full` (ads + trackers + annoyances + cookies), or `ads` [default: `adsandtrackers`]
 - `--adblock-lists <paths>` - Comma-separated additional filter list URLs or local file paths
 
-Ad blocking is powered by [@ghostery/adblocker-playwright](https://github.com/ghostery/adblocker) with blocklists from EasyList, EasyPrivacy, and uBlock Origin. For scriptlet compatibility, see the [compatibility matrix](https://github.com/ghostery/adblocker/wiki/Compatibility-Matrix).
+Ad blocking is powered by [@ghostery/adblocker-playwright](https://github.com/ghostery/adblocker) with blocklists from EasyList, EasyPrivacy, and uBlock Origin.
+
+For scriptlet compatibility and supported features, see the [AdBlocker Compatibility Matrix](https://github.com/ghostery/adblocker/wiki/Compatibility-Matrix).
 
 ### Execute JavaScript
 
@@ -280,6 +288,30 @@ return elements.length;
 
 The `js` command executes JavaScript code in the context of the current page and returns any value that is explicitly returned from the script.
 
+### HTTP API for Screenshots
+
+The daemon exposes HTTP endpoints for programmatic screenshot capture:
+
+```bash
+# Basic usage
+curl -X POST "http://localhost:3030/goto" -H "Content-Type: application/json" -d '{"url":"https://example.com"}'
+
+# Take a screenshot
+curl -X POST "http://localhost:3030/shot" -H "Content-Type: application/json" -d '{"url":"https://example.com","width":1920,"height":1080}' -o screenshot.png
+
+# Take multiple screenshots from a single page load
+curl -X POST "http://localhost:3030/shot-multi" -H "Content-Type: application/json" -d '{
+  "url": "https://example.com",
+  "width": 1920,
+  "outputs": [
+    {"height": 720, "output_width": 640},
+    {"height": 1080, "output_width": 1280}
+  ]
+}'
+```
+
+See [API.md](API.md) for complete API documentation and examples in multiple languages.
+
 ### Stop the daemon
 
 ```bash
@@ -287,3 +319,41 @@ br stop
 ```
 
 The daemon runs a headless Chromium browser and exposes a small HTTP API. The CLI communicates with it to perform actions like navigation and clicking elements.
+
+## Future Features
+
+Based on insights from the "Building Browser Agents" research paper and real-world agent usage, here are potential improvements being considered:
+
+### Enhanced Context Management
+- **Visual snapshots for ambiguous elements** (Low complexity) - Add small screenshots for visually similar buttons or icon-only elements when text alone isn't sufficient
+- **Element state indicators** (Low complexity) - Include `visible`, `enabled`, `focused`, `checked` states in view-tree output
+- **Bounding box data** (Low complexity) - Add coordinates to help agents understand spatial layout
+
+### Action Verification & Feedback
+- **Action result summaries** (Medium complexity) - Return what changed after actions (e.g., "Clicked button → modal appeared")
+- **Before/after tree diffs** (Medium complexity) - Show minimal DOM changes after actions so agents can verify success
+- **Wait-for-stable** (Medium complexity) - Auto-wait for DOM to stabilize after clicks/navigations
+
+### Reliability Improvements
+- **Retry with fallback selectors** (Low complexity) - If click by ID fails, auto-retry with text match
+- **Element visibility verification** (Low complexity) - Prevent clicks on hidden/off-screen elements
+- **Challenge detection reporting** (Low complexity) - Warn agents when Cloudflare or other challenges appear
+
+### Context Optimization
+- **Filtered/interactive-only view** (Low complexity) - Show only buttons, links, inputs to reduce context
+- **Viewport-only tree** (Low complexity) - Elements currently visible on screen
+- **Depth limiting** (Low complexity) - `view-tree --depth 3` to control output size
+
+### High-Level Convenience Commands
+- **Login helper** (Medium complexity) - `br login <user-env> <pass-env>` to find form + fill + submit
+- **Wait-for element** (Low complexity) - `br wait-for <selector>` for explicit waits
+
+### Content Extraction
+- **extract-content** (Low complexity) - Smart content extraction using @mozilla/readability
+  - Strips navigation, ads, sidebars, boilerplate
+  - Returns clean article/main content as Markdown (via turndown)
+  - Outputs: title, byline, excerpt, content
+  - Option: `--format text|markdown|html` (default: markdown)
+  - Could be added as `extract-text --content` flag or standalone command
+
+These features aim to reduce the number of decisions agents must make for common tasks while maintaining the tool's simplicity and reliability. Priority will be given to features that most frequently cause agent failures in real-world usage.

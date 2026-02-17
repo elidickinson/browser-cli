@@ -247,14 +247,14 @@ program
   .command('goto')
   .description('Navigate the browser to a specific URL.')
   .argument('<url>', 'The full URL to navigate to (e.g., "https://example.com").')
-  .action(asyncAction(async (url) => {
+  .action(async (url) => {
     // Auto-add https:// if no protocol is specified
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       url = 'https://' + url;
     }
     await send('/goto', 'POST', { url });
     console.log('Navigated to', url);
-  }));
+  });
 
 program
   .command('scrollIntoView')
@@ -461,37 +461,37 @@ program
   .command('switch-tab')
   .description('Switch to a different open tab by its index.')
   .argument('<index>', 'The index of the tab to switch to.')
-  .action(asyncAction(async (index) => {
+  .action(async (index) => {
     await send('/tabs/switch', 'POST', { index: Number(index) });
     console.log('Switched to tab', index);
-  }));
+  });
 
 program
   .command('eval')
   .description('Execute JavaScript in the browser context and return the result.')
   .argument('[script]', 'JavaScript code to execute (if not using --file).')
   .option('-f, --file <path>', 'Path to a JavaScript file to execute.')
-  .action(async (script, opts) => {
+  .action(asyncAction(async (script, opts) => {
     let scriptToRun = script;
 
     if (opts.file) {
       // Read JavaScript from file
       if (!fs.existsSync(opts.file)) {
         console.error(`Error: File not found: ${opts.file}`);
-        return;
+        process.exit(1);
       }
       scriptToRun = fs.readFileSync(opts.file, 'utf8');
     }
 
     if (!scriptToRun) {
       console.error('Error: No script provided. Use either a script argument or --file option.');
-      return;
+      process.exit(1);
     }
 
     const response = await send('/eval', 'POST', { script: scriptToRun });
+    const { result } = response;
 
     // Pretty print the result
-    const { result } = response;
     if (result === undefined) {
       console.log('undefined');
     } else if (result === null) {
@@ -501,7 +501,7 @@ program
     } else {
       console.log(result);
     }
-  });
+  }));
 
 program
   .command('extract-text')

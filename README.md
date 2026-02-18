@@ -6,6 +6,7 @@
 <h1 align="center">Browser CLI </h1>
 
 **Fork of [browsemake/browser-cli](https://github.com/browsemake/browser-cli) with additional features:**
+- Named instances (`--name`) for running multiple browser daemons concurrently
 - JavaScript execution (`br eval`) for running custom scripts on web pages
 - Enhanced screenshot options with custom paths and full-page capture
 - Ad blocking with configurable filter levels and custom blocklists
@@ -234,6 +235,13 @@ br switch-tab 1
 ### Start daemon with options
 
 ```bash
+# Run multiple named instances
+br start --name production
+br start --name staging
+br goto https://prod.example.com --name production
+br goto https://staging.example.com --name staging
+br list
+
 # Run in headless mode (without a visible GUI)
 br start --headless
 

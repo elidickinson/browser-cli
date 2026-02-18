@@ -9,6 +9,22 @@ const os = require('os');
 const REGISTRY_DIR = path.join(os.homedir(), '.br');
 const REGISTRY_FILE = path.join(REGISTRY_DIR, 'instances.json');
 
+class DaemonNotRunningError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'DaemonNotRunningError';
+    this.code = 'DAEMON_NOT_RUNNING';
+  }
+}
+
+function handleDaemonError(err) {
+  if (err.code === 'DAEMON_NOT_RUNNING' || err.code === 'ECONNREFUSED') {
+    console.error('Error:', err.message);
+    process.exit(1);
+  }
+  throw err;
+}
+
 function readRegistry() {
   try {
     const data = JSON.parse(fs.readFileSync(REGISTRY_FILE, 'utf8'));
@@ -103,7 +119,8 @@ function send(urlPath, method = 'GET', body, port) {
     });
     req.on('error', (e) => {
       if (e.code === 'ECONNREFUSED') {
-        reject('Daemon is not running. Please start it with "br start".');
+        const err = new DaemonNotRunningError('Daemon is not running. Please start it with "br start".');
+        reject(err);
       } else {
         console.log('Unknown error, try start the daemon with "br start":');
         console.error(e);
@@ -150,7 +167,7 @@ function getInstanceName() {
 
 function getInstancePort(name) {
   const instance = getInstance(name);
-  if (!instance) throw new Error(`Instance "${name}" is not running. Start it with: br${name !== 'default' ? ` --name ${name}` : ''} start`);
+  if (!instance) throw new DaemonNotRunningError(`Instance is not running. Start it with: br${name !== 'default' ? ` --name ${name}` : ''} start`);
   return instance.port;
 }
 
@@ -367,8 +384,12 @@ program
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       url = 'https://' + url;
     }
-    await sendToInstance('/goto', 'POST', { url });
-    console.log('Navigated to', url);
+    try {
+      await sendToInstance('/goto', 'POST', { url });
+      console.log('Navigated to', url);
+    } catch (err) {
+      handleDaemonError(err);
+    }
   });
 
 program

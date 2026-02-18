@@ -58,7 +58,8 @@ function humanDelay(minMs, maxMs) {
   return new Promise(r => setTimeout(r, delay));
 }
 
-const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${Date.now()}`);
+const instanceName = process.env.BR_INSTANCE || 'default';
+const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${instanceName}_${Date.now()}`);
 
 (async () => {
   // Initialize adblocker if enabled
@@ -644,9 +645,9 @@ Try using --selector to specify the search input explicitly.`);
     shutdown();
   });
 
-  const port = 3030;
+  const port = parseInt(process.env.BR_PORT) || 3030;
   app.listen(port, () => {
-    console.log(`br daemon running on port ${port}`);
+    console.log(`br daemon (${instanceName}) running on port ${port}`);
     process.stdout.uncork();
   });
 

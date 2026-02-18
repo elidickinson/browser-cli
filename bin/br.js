@@ -4,21 +4,76 @@ const { spawn } = require('child_process');
 const fs = require('fs');
 const path = require('path');
 const http = require('http');
+const os = require('os');
 
-const PID_FILE = path.join(__dirname, '../daemon.pid');
-const PORT = 3030;
+const REGISTRY_DIR = path.join(os.homedir(), '.br');
+const REGISTRY_FILE = path.join(REGISTRY_DIR, 'instances.json');
 
-function getRunningPid() {
+function readRegistry() {
   try {
-    const pid = parseInt(fs.readFileSync(PID_FILE, 'utf8'), 10);
-    process.kill(pid, 0);
-    return pid;
-  } catch (err) {
-    return null;
+    const data = JSON.parse(fs.readFileSync(REGISTRY_FILE, 'utf8'));
+    // Prune dead entries
+    let changed = false;
+    for (const [name, entry] of Object.entries(data)) {
+      try {
+        process.kill(entry.pid, 0);
+      } catch {
+        delete data[name];
+        changed = true;
+      }
+    }
+    if (changed) writeRegistry(data);
+    return data;
+  } catch {
+    return {};
   }
 }
 
-function send(path, method = 'GET', body) {
+function writeRegistry(data) {
+  fs.mkdirSync(REGISTRY_DIR, { recursive: true });
+  fs.writeFileSync(REGISTRY_FILE, JSON.stringify(data, null, 2));
+}
+
+function registerInstance(name, port, pid) {
+  const data = readRegistry();
+  data[name] = { port, pid };
+  writeRegistry(data);
+}
+
+function unregisterInstance(name) {
+  const data = readRegistry();
+  delete data[name];
+  writeRegistry(data);
+}
+
+function getInstance(name) {
+  const data = readRegistry();
+  return data[name] || null;
+}
+
+function isPortFree(port) {
+  return new Promise(resolve => {
+    const server = require('net').createServer();
+    server.once('error', () => resolve(false));
+    server.once('listening', () => { server.close(); resolve(true); });
+    server.listen(port);
+  });
+}
+
+async function allocatePort() {
+  const data = readRegistry();
+  const usedPorts = new Set(Object.values(data).map(e => e.port));
+  let port = 3030;
+  while (usedPorts.has(port) || !(await isPortFree(port))) port++;
+  return port;
+}
+
+function getRunningPid(name) {
+  const instance = getInstance(name);
+  return instance ? instance.pid : null;
+}
+
+function send(urlPath, method = 'GET', body, port) {
   return new Promise((resolve, reject) => {
     const data = body ? JSON.stringify(body) : null;
     const headers = data ? { 'Content-Type': 'application/json', 'Content-Length': Buffer.byteLength(data) } : {};
@@ -26,8 +81,8 @@ function send(path, method = 'GET', body) {
 
     const req = http.request({
       hostname: 'localhost',
-      port: PORT,
-      path,
+      port,
+      path: urlPath,
       method,
       headers
     }, (res) => {
@@ -73,14 +128,37 @@ function asyncAction(fn) {
 
 // Check daemon status for help display
 function getDaemonStatus() {
-  const pid = getRunningPid();
-  return pid ? `running (PID: ${pid})` : 'not running';
+  const registry = readRegistry();
+  const entries = Object.entries(registry);
+  if (entries.length === 0) return 'no instances running';
+  return entries.map(([name, e]) => `${name} (PID: ${e.pid}, port: ${e.port})`).join(', ');
 }
 
 // Customize help to show daemon status
 program.addHelpText('before', () => {
   return `\nDaemon status: ${getDaemonStatus()}\n`;
 });
+
+program.option('-n, --name <name>', 'Instance name', 'default');
+
+function getInstanceName() {
+  // Parse --name from process.argv before commander processes subcommands
+  const idx = process.argv.indexOf('--name') !== -1 ? process.argv.indexOf('--name') : process.argv.indexOf('-n');
+  if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
+  return 'default';
+}
+
+function getInstancePort(name) {
+  const instance = getInstance(name);
+  if (!instance) throw new Error(`Instance "${name}" is not running. Start it with: br${name !== 'default' ? ` --name ${name}` : ''} start`);
+  return instance.port;
+}
+
+function sendToInstance(urlPath, method = 'GET', body) {
+  const name = getInstanceName();
+  const port = getInstancePort(name);
+  return send(urlPath, method, body, port);
+}
 
 program
   .command('start')
@@ -93,30 +171,36 @@ program
   .option('--foreground', 'Run daemon in foreground (attached to terminal, not detached)')
   .option('--humanlike', 'Add random delays to simulate human-like interactions')
   .action(async (opts) => {
-    const pid = getRunningPid();
-    if (pid) {
+    const name = getInstanceName();
+    const instance = getInstance(name);
+    if (instance) {
       try {
-        const health = await send('/health');
+        const health = await send('/health', 'GET', undefined, instance.port);
         if (health === 'ok') {
-          console.log('Daemon is already running.');
+          console.log(`Instance "${name}" is already running (port ${instance.port}).`);
           return;
         }
       } catch (err) {
         // Health check failed, assume daemon is stale
         console.log('Found stale daemon process, attempting to stop it...');
         try {
-          process.kill(pid);
-          fs.unlinkSync(PID_FILE);
-          console.log('Stale daemon stopped.');
-        } catch (killErr) {
-          console.error('Failed to stop stale daemon, please check for zombie processes.');
-          return;
-        }
+          process.kill(instance.pid);
+        } catch {}
+        unregisterInstance(name);
+        console.log('Stale daemon stopped.');
       }
     }
 
+    // Allocate port (default instance prefers 3030)
+    let port;
+    if (name === 'default' && !getInstance('default') && await isPortFree(3030)) {
+      port = 3030;
+    } else {
+      port = await allocatePort();
+    }
+
     // Prepare environment variables for daemon
-    const env = { ...process.env };
+    const env = { ...process.env, BR_PORT: String(port), BR_INSTANCE: name };
     if (opts.headless) {
       env.BR_HEADLESS = 'true';
       console.log('Running in headless mode');
@@ -178,17 +262,17 @@ program
 
     if (opts.foreground) {
       // Run in foreground - don't detach, inherit stdio
-      console.log('Starting daemon in foreground mode...');
+      console.log(`Starting daemon "${name}" in foreground mode on port ${port}...`);
       const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {
         detached: false,
         stdio: 'inherit',
         env
       });
 
-      fs.writeFileSync(PID_FILE, String(child.pid));
+      registerInstance(name, port, child.pid);
 
       child.on('exit', () => {
-        try { fs.unlinkSync(PID_FILE); } catch {}
+        unregisterInstance(name);
       });
 
     } else {
@@ -200,19 +284,20 @@ program
       });
 
       child.unref();
-      fs.writeFileSync(PID_FILE, String(child.pid));
+      registerInstance(name, port, child.pid);
 
       // Poll health endpoint to confirm daemon is ready
       const startTime = Date.now();
       const checkHealth = async () => {
         if (Date.now() - startTime > 5000) {
+          unregisterInstance(name);
           console.error('Daemon failed to start in a timely manner.');
           process.exit(1);
         }
 
         try {
-          await send('/health');
-          console.log('Daemon started successfully.');
+          await send('/health', 'GET', undefined, port);
+          console.log(`Daemon "${name}" started on port ${port}.`);
           process.exit(0);
         } catch (err) {
           setTimeout(checkHealth, 100);
@@ -226,20 +311,50 @@ program
 program
   .command('stop')
   .description('Stop the headless browser daemon process.')
-  .action(async () => {
-    const pid = getRunningPid();
-    if (pid) {
-      process.kill(pid);
-      try { fs.unlinkSync(PID_FILE); } catch {}
-      console.log('Daemon stopped.');
+  .option('-a, --all', 'Stop all running instances')
+  .action(async (opts) => {
+    if (opts.all) {
+      const registry = readRegistry();
+      const names = Object.keys(registry);
+      if (names.length === 0) {
+        console.log('No instances running.');
+        return;
+      }
+      for (const name of names) {
+        try {
+          process.kill(registry[name].pid);
+          console.log(`Stopped "${name}".`);
+        } catch {}
+        unregisterInstance(name);
+      }
       return;
     }
-    // No PID file, but daemon might be running from another install - try to stop via API
-    try {
-      await send('/shutdown', 'POST');
-      console.log('Daemon stopped.');
-    } catch {
-      console.log('Daemon is not running.');
+
+    const name = getInstanceName();
+    const instance = getInstance(name);
+    if (instance) {
+      try { process.kill(instance.pid); } catch {}
+      unregisterInstance(name);
+      console.log(`Instance "${name}" stopped.`);
+      return;
+    }
+    console.log(`Instance "${name}" is not running.`);
+  });
+
+program
+  .command('list')
+  .alias('ls')
+  .description('List all running browser instances.')
+  .action(() => {
+    const registry = readRegistry();
+    const entries = Object.entries(registry);
+    if (entries.length === 0) {
+      console.log('No instances running.');
+      return;
+    }
+    console.log('NAME'.padEnd(16) + 'PORT'.padEnd(8) + 'PID'.padEnd(10) + 'STATUS');
+    for (const [name, entry] of entries) {
+      console.log(name.padEnd(16) + String(entry.port).padEnd(8) + String(entry.pid).padEnd(10) + 'running');
     }
   });
 
@@ -252,7 +367,7 @@ program
     if (!url.startsWith('http://') && !url.startsWith('https://')) {
       url = 'https://' + url;
     }
-    await send('/goto', 'POST', { url });
+    await sendToInstance('/goto', 'POST', { url });
     console.log('Navigated to', url);
   });
 
@@ -261,7 +376,7 @@ program
   .description('Scroll the page until a specific element is in view.')
   .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
   .action(asyncAction(async (selector) => {
-    await send('/scroll-into-view', 'POST', { selector });
+    await sendToInstance('/scroll-into-view', 'POST', { selector });
     console.log('Scrolled', selector, 'into view.');
   }));
 
@@ -270,7 +385,7 @@ program
   .description('Scroll the page to a given percentage of its total height.')
   .argument('<percentage>', 'A number from 0 to 100.')
   .action(asyncAction(async (percentage) => {
-    await send('/scroll-to', 'POST', { percentage });
+    await sendToInstance('/scroll-to', 'POST', { percentage });
     console.log(`Scrolled to ${percentage}%.`);
   }));
 
@@ -280,7 +395,7 @@ program
   .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
   .argument('<text>', 'The text to fill the field with.')
   .action(asyncAction(async (selector, text) => {
-    await send('/fill', 'POST', { selector, text });
+    await sendToInstance('/fill', 'POST', { selector, text });
     console.log('Filled', selector);
   }));
 
@@ -295,7 +410,7 @@ program
       console.error(`Error: Environment variable "${envVar}" is not set.`);
       process.exit(1);
     }
-    await send('/fill-secret', 'POST', { selector, secret });
+    await sendToInstance('/fill-secret', 'POST', { selector, secret });
     console.log('Filled secret value into', selector);
   }));
 
@@ -305,7 +420,7 @@ program
   .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
   .argument('<text>', 'The text to type into the field.')
   .action(asyncAction(async (selector, text) => {
-    await send('/type', 'POST', { selector, text });
+    await sendToInstance('/type', 'POST', { selector, text });
     console.log('Typed text into', selector);
   }));
 
@@ -314,7 +429,7 @@ program
   .description("Simulate a single key press (e.g., 'Enter', 'Tab').")
   .argument('<key>', "The key to press, as defined in Playwright's documentation.")
   .action(asyncAction(async (key) => {
-    await send('/press', 'POST', { key });
+    await sendToInstance('/press', 'POST', { key });
     console.log('Pressed', key);
   }));
 
@@ -326,7 +441,7 @@ program
   .action(asyncAction(async (query, opts) => {
     const body = { query };
     if (opts.selector) body.selector = opts.selector;
-    const response = await send('/fill-search', 'POST', body);
+    const response = await sendToInstance('/fill-search', 'POST', body);
     console.log('Searched for:', query);
     if (response.selector) {
       console.log('Used selector:', response.selector);
@@ -337,7 +452,7 @@ program
   .command('nextChunk')
   .description('Scroll down by one viewport height to view the next chunk of content.')
   .action(asyncAction(async () => {
-    await send('/next-chunk', 'POST');
+    await sendToInstance('/next-chunk', 'POST');
     console.log('Scrolled to the next chunk.');
   }));
 
@@ -345,7 +460,7 @@ program
   .command('prevChunk')
   .description('Scroll up by one viewport height to view the previous chunk of content.')
   .action(asyncAction(async () => {
-    await send('/prev-chunk', 'POST');
+    await sendToInstance('/prev-chunk', 'POST');
     console.log('Scrolled to the previous chunk.');
   }));
 
@@ -354,7 +469,7 @@ program
   .description('Click an element. Supports CSS selectors, XPath, and view-tree IDs.')
   .argument('<selectorOrId>', 'CSS selector (e.g., "input"), XPath expression, or numeric ID from view-tree.')
   .action(asyncAction(async (selector) => {
-    await send('/click', 'POST', { selector });
+    await sendToInstance('/click', 'POST', { selector });
     console.log('Clicked', selector);
   }));
 
@@ -367,7 +482,7 @@ program
     const fullPage = opts.fullPage || false;
     const params = new URLSearchParams({ fullPage });
     if (opts.output) params.append('path', opts.output);
-    const file = await send(`/screenshot?${params}`);
+    const file = await sendToInstance(`/screenshot?${params}`);
     console.log('Screenshot saved to:', file);
     console.log('Tip: view-tree can be a much more efficient way to extract info from a page.');
   });
@@ -378,7 +493,7 @@ program
   .option('-p, --page <number>', 'Page number to view', '1')
   .action(async (opts) => {
     const page = Number(opts.page) || 1;
-    const html = await send(`/html?page=${page}`);
+    const html = await sendToInstance(`/html?page=${page}`);
     if (html.length === 0) {
       console.log('No HTML content found for this page.');
       return;
@@ -403,7 +518,7 @@ program
   .alias('hist')
   .description('Display the history of actions performed in the current session.')
   .action(async () => {
-    const hist = await send('/history');
+    const hist = await sendToInstance('/history');
     console.log(hist);
   });
 
@@ -411,7 +526,7 @@ program
   .command('clear-history')
   .description("Clear the session's action history.")
   .action(async () => {
-    await send('/history/clear', 'POST');
+    await sendToInstance('/history/clear', 'POST');
     console.log('History cleared.');
   });
 
@@ -419,7 +534,7 @@ program
   .command('view-tree')
   .description("Display a hierarchical tree of the page's accessibility and DOM nodes.")
   .action(async () => {
-    const response = await send('/tree');
+    const response = await sendToInstance('/tree');
     let tree = response.tree;
 
     // Handle the case where tree is still a string (daemon not restarted yet)
@@ -451,7 +566,7 @@ program
   .command('tabs')
   .description('List all open tabs (pages) in the browser daemon.')
   .action(async () => {
-    const tabs = await send('/tabs');
+    const tabs = await sendToInstance('/tabs');
     tabs.forEach(tab => {
       console.log(`${tab.isActive ? '*' : ' '}${tab.index}: ${tab.title} (${tab.url})`);
     });
@@ -462,7 +577,7 @@ program
   .description('Switch to a different open tab by its index.')
   .argument('<index>', 'The index of the tab to switch to.')
   .action(async (index) => {
-    await send('/tabs/switch', 'POST', { index: Number(index) });
+    await sendToInstance('/tabs/switch', 'POST', { index: Number(index) });
     console.log('Switched to tab', index);
   });
 
@@ -488,7 +603,7 @@ program
       process.exit(1);
     }
 
-    const response = await send('/eval', 'POST', { script: scriptToRun });
+    const response = await sendToInstance('/eval', 'POST', { script: scriptToRun });
     const { result } = response;
 
     // Pretty print the result
@@ -510,7 +625,7 @@ program
   .action(asyncAction(async (opts) => {
     const body = {};
     if (opts.selector) body.selector = opts.selector;
-    const response = await send('/extract-text', 'POST', body);
+    const response = await sendToInstance('/extract-text', 'POST', body);
     console.log(response.text);
     if (response.selector) {
       console.log('(using selector:', response.selector + ')');
@@ -529,7 +644,7 @@ const consoleCmd = program
     if (opts.type) params.append('type', opts.type);
     if (opts.tab !== undefined) params.append('tab', opts.tab);
     if (opts.clear) params.append('clear', 'true');
-    const allLogs = await send(`/console?${params}`);
+    const allLogs = await sendToInstance(`/console?${params}`);
     if (allLogs.length === 0) {
       console.log('No console logs captured.');
       return;
@@ -554,7 +669,7 @@ consoleCmd
   .command('clear')
   .description('Clear captured console logs.')
   .action(asyncAction(async () => {
-    await send('/console/clear', 'POST');
+    await sendToInstance('/console/clear', 'POST');
     console.log('Console logs cleared.');
   }));
 

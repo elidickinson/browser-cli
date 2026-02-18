@@ -9,17 +9,15 @@
 - JavaScript execution (`br eval`) for running custom scripts on web pages
 - Enhanced screenshot options with custom paths and full-page capture
 - Ad blocking with configurable filter levels and custom blocklists
+- Browser console log capture (`br console`) for debugging and error tracking
+- Text extraction (`br extract-text`) with element-specific targeting
+- Smart search input detection (`br fill-search`) with automatic form submission
+- Human-like interaction mode (`--humanlike`) with randomized delays
+- Foreground daemon mode (`br start --foreground`) for debugging
 
 <hr><br>
 
-<div align="center">
-  
-  [![Discord](https://img.shields.io/discord/1391101800052035714?color=7289DA&label=Discord&logo=discord&logoColor=white)](https://discord.gg/N7crMvEX)
-  [![Twitter Follow](https://img.shields.io/twitter/follow/browse_make?style=social)](https://x.com/intent/user?screen_name=browse_make)
-  
-</div>
-
-`br` is a command line tool used by any capable LLM agent, like ChatGPT, [Claude Code](https://github.com/anthropics/claude-code) or [Gemini CLI](https://github.com/google-gemini/gemini-cli).
+`br` is a browser automation command line tool for LLM agents (ChatGPT, Claude Code, Gemini CLI), and also useful for end-to-end and automated UX testing.
 
 https://www.npmjs.com/package/@browsemake/browser-cli
 
@@ -239,6 +237,12 @@ br switch-tab 1
 # Run in headless mode (without a visible GUI)
 br start --headless
 
+# Run in foreground mode (attached to terminal, shows daemon logs)
+br start --foreground
+
+# Combine headless, foreground, and custom viewport
+br start --headless --viewport 1920x1080 --foreground
+
 # Run in headless mode with custom viewport size (default: 1280x720)
 br start --headless --viewport 1920x1080
 
@@ -272,21 +276,32 @@ For scriptlet compatibility and supported features, see the [AdBlocker Compatibi
 ### Execute JavaScript
 
 ```bash
-# Execute JavaScript code
-br js "document.body.style.backgroundColor = 'lightblue'"
-
-# Execute JavaScript and return the result
-br js "return document.title"
-
-# Execute multi-line JavaScript
-br js "
-const elements = document.querySelectorAll('button');
-elements.forEach(el => el.style.border = '2px solid red');
-return elements.length;
-"
+br eval "document.title"
+br eval "document.querySelectorAll('a').length"
+br eval --file script.js
 ```
 
-The `js` command executes JavaScript code in the context of the current page and returns any value that is explicitly returned from the script.
+Captures browser console logs and errors for debugging.
+
+```bash
+br console
+br console --type error,warning
+br console clear
+```
+
+Smart search input detection with auto-submit.
+
+```bash
+br fill-search "search query"
+br fill-search "search query" -s "#custom-input"
+```
+
+Extract text from page or specific elements.
+
+```bash
+br extract-text
+br extract-text -s "article.content"
+```
 
 ### HTTP API for Screenshots
 

@@ -17,10 +17,14 @@ class DaemonNotRunningError extends Error {
   }
 }
 
+// Exit codes: 0 = success, 1 = check/assertion failed, 2 = error
+const EXIT_CHECK_FAILED = 1;
+const EXIT_ERROR = 2;
+
 function handleDaemonError(err) {
   if (err.code === 'DAEMON_NOT_RUNNING' || err.code === 'ECONNREFUSED') {
     console.error('Error:', err.message);
-    process.exit(1);
+    process.exit(EXIT_ERROR);
   }
   throw err;
 }
@@ -138,7 +142,7 @@ function asyncAction(fn) {
       await fn(...args);
     } catch (err) {
       console.error('Error:', err);
-      process.exit(1);
+      process.exit(EXIT_ERROR);
     }
   };
 }
@@ -227,7 +231,7 @@ program
         const [width, height] = opts.viewport.split('x').map(n => parseInt(n, 10));
         if (isNaN(width) || isNaN(height)) {
           console.error('Invalid viewport size format. Please use WIDTHxHEIGHT (e.g., 1920x1080)');
-          process.exit(1);
+          process.exit(EXIT_ERROR);
         }
         env.BR_VIEWPORT_WIDTH = width.toString();
         env.BR_VIEWPORT_HEIGHT = height.toString();
@@ -259,7 +263,7 @@ program
 
       if (invalidLists.length > 0) {
         console.error(`Error: Filter list file(s) not found: ${invalidLists.join(', ')}`);
-        process.exit(1);
+        process.exit(EXIT_ERROR);
       }
 
       env.BR_ADBLOCK_LISTS = opts.adblockLists;
@@ -274,7 +278,7 @@ program
     const { chromium } = require('patchright');
     if (!fs.existsSync(chromium.executablePath())) {
       console.error('Browser not found. Run: npx patchright install chromium');
-      process.exit(1);
+      process.exit(EXIT_ERROR);
     }
 
     if (opts.foreground) {
@@ -309,7 +313,7 @@ program
         if (Date.now() - startTime > 5000) {
           unregisterInstance(name);
           console.error('Daemon failed to start in a timely manner.');
-          process.exit(1);
+          process.exit(EXIT_ERROR);
         }
 
         try {
@@ -429,7 +433,7 @@ program
     const secret = process.env[envVar];
     if (!secret) {
       console.error(`Error: Environment variable "${envVar}" is not set.`);
-      process.exit(1);
+      process.exit(EXIT_ERROR);
     }
     await sendToInstance('/fill-secret', 'POST', { selector, secret });
     console.log('Filled secret value into', selector);
@@ -614,14 +618,14 @@ program
       // Read JavaScript from file
       if (!fs.existsSync(opts.file)) {
         console.error(`Error: File not found: ${opts.file}`);
-        process.exit(1);
+        process.exit(EXIT_ERROR);
       }
       scriptToRun = fs.readFileSync(opts.file, 'utf8');
     }
 
     if (!scriptToRun) {
       console.error('Error: No script provided. Use either a script argument or --file option.');
-      process.exit(1);
+      process.exit(EXIT_ERROR);
     }
 
     const response = await sendToInstance('/eval', 'POST', { script: scriptToRun });
@@ -650,6 +654,183 @@ program
     console.log(response.text);
     if (response.selector) {
       console.log('(using selector:', response.selector + ')');
+    }
+  }));
+
+// --- Navigation commands ---
+
+program
+  .command('back')
+  .description('Navigate back in browser history.')
+  .action(asyncAction(async () => {
+    const response = await sendToInstance('/back', 'POST');
+    console.log('Navigated back to', response.url);
+  }));
+
+program
+  .command('forward')
+  .description('Navigate forward in browser history.')
+  .action(asyncAction(async () => {
+    const response = await sendToInstance('/forward', 'POST');
+    console.log('Navigated forward to', response.url);
+  }));
+
+program
+  .command('reload')
+  .description('Reload the current page.')
+  .option('--hard', 'Hard reload (bypass cache)')
+  .action(asyncAction(async (opts) => {
+    await sendToInstance('/reload', 'POST', { hard: !!opts.hard });
+    console.log(opts.hard ? 'Hard reloaded (cache bypassed).' : 'Reloaded.');
+  }));
+
+program
+  .command('clear-cache')
+  .description('Clear the browser cache.')
+  .action(asyncAction(async () => {
+    await sendToInstance('/clear-cache', 'POST');
+    console.log('Browser cache cleared.');
+  }));
+
+// --- Wait commands ---
+
+program
+  .command('wait')
+  .description('Wait for an element to appear and become visible.')
+  .argument('<selector>', 'CSS selector or XPath expression.')
+  .option('-t, --timeout <ms>', 'Timeout in milliseconds (default: 30000)')
+  .action(asyncAction(async (selector, opts) => {
+    const body = { selector };
+    if (opts.timeout) body.timeout = opts.timeout;
+    await sendToInstance('/wait', 'POST', body);
+    console.log('Element visible:', selector);
+  }));
+
+program
+  .command('wait-load')
+  .description('Wait for the page load event to fire.')
+  .action(asyncAction(async () => {
+    await sendToInstance('/wait-load', 'POST');
+    console.log('Page loaded.');
+  }));
+
+program
+  .command('wait-stable')
+  .description('Wait for the DOM to stabilize (no mutations for 500ms).')
+  .action(asyncAction(async () => {
+    await sendToInstance('/wait-stable', 'POST');
+    console.log('DOM stable.');
+  }));
+
+program
+  .command('wait-idle')
+  .description('Wait for the network to become idle.')
+  .action(asyncAction(async () => {
+    await sendToInstance('/wait-idle', 'POST');
+    console.log('Network idle.');
+  }));
+
+// --- DOM query commands ---
+
+program
+  .command('exists')
+  .description('Check if an element exists in the DOM. Exits with code 1 if not found.')
+  .argument('<selector>', 'CSS selector or XPath expression.')
+  .action(asyncAction(async (selector) => {
+    const response = await sendToInstance('/exists', 'POST', { selector });
+    console.log(response.result);
+    if (!response.result) process.exit(EXIT_CHECK_FAILED);
+  }));
+
+program
+  .command('visible')
+  .description('Check if an element is visible. Exits with code 1 if not visible.')
+  .argument('<selector>', 'CSS selector or XPath expression.')
+  .action(asyncAction(async (selector) => {
+    const response = await sendToInstance('/visible', 'POST', { selector });
+    console.log(response.result);
+    if (!response.result) process.exit(EXIT_CHECK_FAILED);
+  }));
+
+program
+  .command('count')
+  .description('Count the number of elements matching a selector.')
+  .argument('<selector>', 'CSS selector or XPath expression.')
+  .action(asyncAction(async (selector) => {
+    const response = await sendToInstance('/count', 'POST', { selector });
+    console.log(response.count);
+  }));
+
+program
+  .command('attr')
+  .description('Get the value of an attribute from an element.')
+  .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
+  .argument('<attribute>', 'The attribute name to read.')
+  .action(asyncAction(async (selector, attribute) => {
+    const response = await sendToInstance('/attr', 'POST', { selector, attribute });
+    console.log(response.value);
+  }));
+
+// --- Select and Submit commands ---
+
+program
+  .command('select')
+  .description('Select a value in a <select> dropdown element.')
+  .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
+  .argument('<value>', 'The value to select.')
+  .action(asyncAction(async (selector, value) => {
+    const response = await sendToInstance('/select', 'POST', { selector, value });
+    console.log('Selected:', response.value);
+  }));
+
+program
+  .command('submit')
+  .description('Submit a form. The selector can point to the form or any element inside it.')
+  .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
+  .action(asyncAction(async (selector) => {
+    await sendToInstance('/submit', 'POST', { selector });
+    console.log('Form submitted.');
+  }));
+
+// --- PDF export ---
+
+program
+  .command('pdf')
+  .description('Export the current page as a PDF file.')
+  .option('-o, --output <path>', 'Custom file path for the PDF')
+  .option('--format <size>', 'Page format: Letter, A4, etc. (default: Letter)')
+  .action(asyncAction(async (opts) => {
+    const params = new URLSearchParams();
+    if (opts.output) params.append('path', opts.output);
+    if (opts.format) params.append('format', opts.format);
+    const file = await sendToInstance(`/pdf?${params}`);
+    console.log('PDF saved to:', file);
+  }));
+
+// --- Assert command ---
+
+program
+  .command('assert')
+  .description('Evaluate a JavaScript expression and assert on its result. Exits with code 1 on failure.')
+  .argument('<script>', 'JavaScript expression to evaluate.')
+  .argument('[expected]', 'Expected value (string comparison). If omitted, asserts truthiness.')
+  .option('-m, --message <msg>', 'Custom failure message')
+  .action(asyncAction(async (script, expected, opts) => {
+    const body = { script };
+    if (expected !== undefined) body.expected = expected;
+    if (opts.message) body.message = opts.message;
+    const response = await sendToInstance('/assert', 'POST', body);
+
+    if (response.pass) {
+      console.log('pass');
+    } else {
+      const msg = response.message ? `${response.message}: ` : '';
+      if (response.expected !== undefined) {
+        console.log(`fail: ${msg}got ${JSON.stringify(response.actual)}, expected ${JSON.stringify(response.expected)}`);
+      } else {
+        console.log(`fail: ${msg}got ${JSON.stringify(response.actual)}`);
+      }
+      process.exit(EXIT_CHECK_FAILED);
     }
   }));
 
@@ -699,7 +880,7 @@ program.on('command:*', (operands) => {
   console.error(`error: unknown command '${operands[0]}'`);
   console.log();
   program.outputHelp();
-  process.exit(1);
+  process.exit(EXIT_ERROR);
 });
 
 try {

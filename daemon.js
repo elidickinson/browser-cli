@@ -905,6 +905,94 @@ Try using --selector to specify the search input explicitly.`);
     }
   });
 
+  // --- Download command ---
+
+  app.post('/download', async (req, res) => {
+    const { selector } = req.body;
+    if (!selector) return res.status(400).send('missing selector');
+    try {
+      let element;
+      let actualSelector = selector;
+      if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
+        const xpath = lastIdToXPath[selector];
+        if (!xpath) return res.status(400).send('XPath not found for ID');
+        element = await activePage.$(xpath);
+        actualSelector = xpath;
+      } else {
+        element = await activePage.$(actualSelector);
+      }
+      if (!element) {
+        return res.status(400).send(`Element not found for selector: ${selector}`);
+      }
+
+      // Get href or src attribute
+      let url = await element.getAttribute('href');
+      if (!url) url = await element.getAttribute('src');
+      if (!url) {
+        return res.status(400).send('Element has no href or src attribute');
+      }
+
+      // Resolve relative URLs
+      const resolvedUrl = await activePage.evaluate((u) => {
+        return new URL(u, document.baseURI).href;
+      }, url);
+
+      let fileData;
+      let mimeType = null;
+
+      if (resolvedUrl.startsWith('data:')) {
+        // Handle data URLs
+        const match = resolvedUrl.match(/^data:([^;,]+)?(?:;base64)?,(.*)$/);
+        if (!match) return res.status(400).send('Invalid data URL');
+        mimeType = match[1] || 'application/octet-stream';
+        const isBase64 = resolvedUrl.includes(';base64,');
+        if (isBase64) {
+          fileData = Buffer.from(match[2], 'base64');
+        } else {
+          fileData = Buffer.from(decodeURIComponent(match[2]));
+        }
+      } else {
+        // Fetch via page context to preserve cookies/auth
+        const b64 = await activePage.evaluate(async (fetchUrl) => {
+          const resp = await fetch(fetchUrl);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+          const buf = await resp.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          let binary = '';
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+          return btoa(binary);
+        }, resolvedUrl);
+        fileData = Buffer.from(b64, 'base64');
+      }
+
+      // Determine output path
+      const dir = path.join(os.tmpdir(), 'br_cli');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+      let outputPath;
+      if (req.body.output) {
+        outputPath = path.resolve(req.body.output);
+      } else {
+        // Infer filename from URL
+        let filename;
+        try {
+          const parsed = new URL(resolvedUrl);
+          filename = path.basename(parsed.pathname);
+        } catch {}
+        if (!filename || filename === '/' || filename === '') {
+          filename = `download-${Date.now()}`;
+        }
+        outputPath = path.join(dir, filename);
+      }
+
+      fs.writeFileSync(outputPath, fileData);
+      record('download', { selector, url: resolvedUrl, path: outputPath });
+      res.json({ path: outputPath, size: fileData.length, url: resolvedUrl });
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
   // --- Assert command ---
 
   app.post('/assert', async (req, res) => {

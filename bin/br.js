@@ -807,6 +807,21 @@ program
     console.log('PDF saved to:', file);
   }));
 
+// --- Download command ---
+
+program
+  .command('download')
+  .description("Download a file linked by an element's href or src attribute, using the page's cookies/auth.")
+  .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
+  .option('-o, --output <path>', 'Custom file path for the download')
+  .action(asyncAction(async (selector, opts) => {
+    const body = { selector };
+    if (opts.output) body.output = opts.output;
+    const response = await sendToInstance('/download', 'POST', body);
+    console.log(`Downloaded ${response.url}`);
+    console.log(`Saved to: ${response.path} (${response.size} bytes)`);
+  }));
+
 // --- Assert command ---
 
 program

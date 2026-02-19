@@ -811,8 +811,8 @@ program
 
 program
   .command('download')
-  .description("Download a file linked by an element's href or src attribute, using the page's cookies/auth.")
-  .argument('<selectorOrId>', 'CSS selector, XPath expression, or numeric ID from view-tree.')
+  .description("Download a file by URL, or from an element's href/src attribute, using the page's cookies/auth.")
+  .argument('<selectorOrIdOrUrl>', 'CSS selector, XPath, numeric ID from view-tree, or a URL.')
   .option('-o, --output <path>', 'Custom file path for the download')
   .action(asyncAction(async (selector, opts) => {
     const body = { selector };

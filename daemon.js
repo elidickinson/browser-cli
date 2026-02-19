@@ -911,31 +911,40 @@ Try using --selector to specify the search input explicitly.`);
     const { selector } = req.body;
     if (!selector) return res.status(400).send('missing selector');
     try {
-      let element;
-      let actualSelector = selector;
-      if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
-        const xpath = lastIdToXPath[selector];
-        if (!xpath) return res.status(400).send('XPath not found for ID');
-        element = await activePage.$(xpath);
-        actualSelector = xpath;
+      let resolvedUrl;
+
+      // Check if the argument is already a URL
+      const isUrl = /^https?:\/\//.test(selector) || selector.startsWith('data:');
+
+      if (isUrl) {
+        resolvedUrl = selector;
       } else {
-        element = await activePage.$(actualSelector);
-      }
-      if (!element) {
-        return res.status(400).send(`Element not found for selector: ${selector}`);
-      }
+        let element;
+        let actualSelector = selector;
+        if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
+          const xpath = lastIdToXPath[selector];
+          if (!xpath) return res.status(400).send('XPath not found for ID');
+          element = await activePage.$(xpath);
+          actualSelector = xpath;
+        } else {
+          element = await activePage.$(actualSelector);
+        }
+        if (!element) {
+          return res.status(400).send(`Element not found for selector: ${selector}`);
+        }
 
-      // Get href or src attribute
-      let url = await element.getAttribute('href');
-      if (!url) url = await element.getAttribute('src');
-      if (!url) {
-        return res.status(400).send('Element has no href or src attribute');
-      }
+        // Get href or src attribute
+        let url = await element.getAttribute('href');
+        if (!url) url = await element.getAttribute('src');
+        if (!url) {
+          return res.status(400).send('Element has no href or src attribute');
+        }
 
-      // Resolve relative URLs
-      const resolvedUrl = await activePage.evaluate((u) => {
-        return new URL(u, document.baseURI).href;
-      }, url);
+        // Resolve relative URLs
+        resolvedUrl = await activePage.evaluate((u) => {
+          return new URL(u, document.baseURI).href;
+        }, url);
+      }
 
       let fileData;
       let mimeType = null;

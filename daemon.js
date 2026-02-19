@@ -644,10 +644,14 @@ Try using --selector to specify the search input explicitly.`);
 
   app.post('/back', async (req, res) => {
     try {
-      await activePage.goBack({ waitUntil: 'domcontentloaded', timeout: 30000 });
-      const url = activePage.url();
+      const urlBefore = activePage.url();
+      await activePage.evaluate(() => history.back());
+      await activePage.waitForURL(url => url.toString() !== urlBefore, { timeout: 5000 })
+        .catch(() => {});
+      const urlAfter = activePage.url();
+      if (urlAfter === urlBefore) return res.status(400).send('No back history');
       record('back');
-      res.json({ url });
+      res.json({ url: urlAfter });
     } catch (err) {
       res.status(500).send(err.message);
     }
@@ -655,10 +659,14 @@ Try using --selector to specify the search input explicitly.`);
 
   app.post('/forward', async (req, res) => {
     try {
-      await activePage.goForward({ waitUntil: 'domcontentloaded', timeout: 30000 });
-      const url = activePage.url();
+      const urlBefore = activePage.url();
+      await activePage.evaluate(() => history.forward());
+      await activePage.waitForURL(url => url.toString() !== urlBefore, { timeout: 5000 })
+        .catch(() => {});
+      const urlAfter = activePage.url();
+      if (urlAfter === urlBefore) return res.status(400).send('No forward history');
       record('forward');
-      res.json({ url });
+      res.json({ url: activePage.url() });
     } catch (err) {
       res.status(500).send(err.message);
     }
@@ -795,18 +803,7 @@ Try using --selector to specify the search input explicitly.`);
     if (!selector) return res.status(400).send('missing selector');
     if (!attribute) return res.status(400).send('missing attribute');
     try {
-      let element;
-      // Handle numeric IDs from view-tree
-      if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
-        const xpath = lastIdToXPath[selector];
-        if (!xpath) return res.status(400).send('XPath not found for ID');
-        element = await activePage.$(xpath);
-      } else {
-        element = await activePage.$(selector);
-      }
-      if (!element) {
-        return res.status(400).send(`Element not found for selector: ${selector}`);
-      }
+      const { element } = await resolveSelector(activePage, selector);
       const value = await element.getAttribute(attribute);
       if (value === null) {
         return res.status(400).send(`Attribute "${attribute}" not found`);
@@ -822,22 +819,15 @@ Try using --selector to specify the search input explicitly.`);
   app.post('/select', async (req, res) => {
     const { value } = req.body;
     if (value === undefined) return res.status(400).send('missing value');
-    let { selector } = req.body;
+    const { selector } = req.body;
     if (!selector) return res.status(400).send('missing selector');
     try {
-      let actualSelector = selector;
-      if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
-        const xpath = lastIdToXPath[selector];
-        if (!xpath) return res.status(400).send('XPath not found for ID');
-        actualSelector = xpath;
-      }
-      const result = await activePage.evaluate(({ sel, val }) => {
-        const el = document.querySelector(sel);
-        if (!el) throw new Error(`Element not found: ${sel}`);
+      const { element } = await resolveSelector(activePage, selector);
+      await element.evaluate((el, val) => {
         el.value = val;
         el.dispatchEvent(new Event('change', { bubbles: true }));
-        return el.value;
-      }, { sel: actualSelector, val: value });
+      }, value);
+      const result = await element.evaluate(el => el.value);
       record('select', { selector, value });
       res.json({ value: result });
     } catch (err) {
@@ -846,28 +836,15 @@ Try using --selector to specify the search input explicitly.`);
   });
 
   app.post('/submit', async (req, res) => {
-    let { selector } = req.body;
+    const { selector } = req.body;
     if (!selector) return res.status(400).send('missing selector');
     try {
-      let actualSelector = selector;
-      if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
-        const xpath = lastIdToXPath[selector];
-        if (!xpath) return res.status(400).send('XPath not found for ID');
-        actualSelector = xpath;
-      }
-      // Verify element exists
-      const element = await activePage.$(actualSelector);
-      if (!element) {
-        return res.status(400).send(`Element not found for selector: ${selector}`);
-      }
-      await activePage.evaluate(sel => {
-        const el = document.querySelector(sel);
-        if (!el) throw new Error(`Element not found: ${sel}`);
-        // Find closest form and submit, or submit directly if it's a form
+      const { element } = await resolveSelector(activePage, selector);
+      await element.evaluate(el => {
         const form = el.tagName === 'FORM' ? el : el.closest('form');
         if (!form) throw new Error('No form found for selector');
         form.submit();
-      }, actualSelector);
+      });
       record('submit', { selector });
       res.send('ok');
     } catch (err) {
@@ -919,19 +896,7 @@ Try using --selector to specify the search input explicitly.`);
       if (isUrl) {
         resolvedUrl = selector;
       } else {
-        let element;
-        let actualSelector = selector;
-        if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
-          const xpath = lastIdToXPath[selector];
-          if (!xpath) return res.status(400).send('XPath not found for ID');
-          element = await activePage.$(xpath);
-          actualSelector = xpath;
-        } else {
-          element = await activePage.$(actualSelector);
-        }
-        if (!element) {
-          return res.status(400).send(`Element not found for selector: ${selector}`);
-        }
+        const { element } = await resolveSelector(activePage, selector);
 
         // Get href or src attribute
         let url = await element.getAttribute('href');
@@ -947,13 +912,11 @@ Try using --selector to specify the search input explicitly.`);
       }
 
       let fileData;
-      let mimeType = null;
 
       if (resolvedUrl.startsWith('data:')) {
         // Handle data URLs
         const match = resolvedUrl.match(/^data:([^;,]+)?(?:;base64)?,(.*)$/);
         if (!match) return res.status(400).send('Invalid data URL');
-        mimeType = match[1] || 'application/octet-stream';
         const isBase64 = resolvedUrl.includes(';base64,');
         if (isBase64) {
           fileData = Buffer.from(match[2], 'base64');
@@ -982,13 +945,9 @@ Try using --selector to specify the search input explicitly.`);
       if (req.body.output) {
         outputPath = path.resolve(req.body.output);
       } else {
-        // Infer filename from URL
-        let filename;
-        try {
-          const parsed = new URL(resolvedUrl);
-          filename = path.basename(parsed.pathname);
-        } catch {}
-        if (!filename || filename === '/' || filename === '') {
+        const parsed = new URL(resolvedUrl);
+        let filename = path.basename(parsed.pathname);
+        if (!filename || filename === '/') {
           filename = `download-${Date.now()}`;
         }
         outputPath = path.join(dir, filename);
@@ -1030,7 +989,7 @@ Try using --selector to specify the search input explicitly.`);
         });
       } else {
         // Truthy mode: check if result is truthy
-        const pass = !!(result);
+        const pass = !!result;
         res.json({
           pass,
           actual: resultStr,

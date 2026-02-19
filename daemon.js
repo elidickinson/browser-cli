@@ -640,6 +640,408 @@ Try using --selector to specify the search input explicitly.`);
     res.send('ok');
   });
 
+  // --- Navigation commands ---
+
+  app.post('/back', async (req, res) => {
+    try {
+      await activePage.goBack({ waitUntil: 'domcontentloaded', timeout: 30000 });
+      const url = activePage.url();
+      record('back');
+      res.json({ url });
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post('/forward', async (req, res) => {
+    try {
+      await activePage.goForward({ waitUntil: 'domcontentloaded', timeout: 30000 });
+      const url = activePage.url();
+      record('forward');
+      res.json({ url });
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post('/reload', async (req, res) => {
+    try {
+      if (req.body.hard) {
+        // Hard reload bypasses cache via CDP
+        const session = await activePage.context().newCDPSession(activePage);
+        await session.send('Page.reload', { ignoreCache: true });
+        await session.detach();
+        await activePage.waitForLoadState('domcontentloaded');
+      } else {
+        await activePage.reload({ waitUntil: 'domcontentloaded', timeout: 30000 });
+      }
+      record('reload', { hard: !!req.body.hard });
+      res.send('ok');
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post('/clear-cache', async (req, res) => {
+    try {
+      const session = await activePage.context().newCDPSession(activePage);
+      await session.send('Network.clearBrowserCache');
+      await session.detach();
+      record('clear-cache');
+      res.send('ok');
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // --- Wait commands ---
+
+  app.post('/wait', async (req, res) => {
+    const { selector, timeout } = req.body;
+    if (!selector) return res.status(400).send('missing selector');
+    try {
+      const timeoutMs = timeout ? Number(timeout) : 30000;
+      await activePage.waitForSelector(selector, { state: 'visible', timeout: timeoutMs });
+      record('wait', { selector });
+      res.send('ok');
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post('/wait-load', async (req, res) => {
+    try {
+      await activePage.waitForLoadState('load');
+      record('wait-load');
+      res.send('ok');
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post('/wait-stable', async (req, res) => {
+    try {
+      await activePage.waitForLoadState('domcontentloaded');
+      // Wait for DOM stability: no layout changes for 500ms
+      await activePage.evaluate(() => {
+        return new Promise((resolve) => {
+          let timer;
+          const observer = new MutationObserver(() => {
+            clearTimeout(timer);
+            timer = setTimeout(() => { observer.disconnect(); resolve(); }, 500);
+          });
+          observer.observe(document.body, { childList: true, subtree: true, attributes: true });
+          timer = setTimeout(() => { observer.disconnect(); resolve(); }, 500);
+        });
+      });
+      record('wait-stable');
+      res.send('ok');
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post('/wait-idle', async (req, res) => {
+    try {
+      await activePage.waitForLoadState('networkidle');
+      record('wait-idle');
+      res.send('ok');
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // --- DOM query commands ---
+
+  app.post('/exists', async (req, res) => {
+    const { selector } = req.body;
+    if (!selector) return res.status(400).send('missing selector');
+    try {
+      const element = await activePage.$(selector);
+      res.json({ result: !!element });
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post('/visible', async (req, res) => {
+    const { selector } = req.body;
+    if (!selector) return res.status(400).send('missing selector');
+    try {
+      const element = await activePage.$(selector);
+      if (!element) {
+        return res.json({ result: false });
+      }
+      const isVisible = await element.isVisible();
+      res.json({ result: isVisible });
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post('/count', async (req, res) => {
+    const { selector } = req.body;
+    if (!selector) return res.status(400).send('missing selector');
+    try {
+      const elements = await activePage.$$(selector);
+      res.json({ count: elements.length });
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post('/attr', async (req, res) => {
+    const { selector, attribute } = req.body;
+    if (!selector) return res.status(400).send('missing selector');
+    if (!attribute) return res.status(400).send('missing attribute');
+    try {
+      let element;
+      // Handle numeric IDs from view-tree
+      if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
+        const xpath = lastIdToXPath[selector];
+        if (!xpath) return res.status(400).send('XPath not found for ID');
+        element = await activePage.$(xpath);
+      } else {
+        element = await activePage.$(selector);
+      }
+      if (!element) {
+        return res.status(400).send(`Element not found for selector: ${selector}`);
+      }
+      const value = await element.getAttribute(attribute);
+      if (value === null) {
+        return res.status(400).send(`Attribute "${attribute}" not found`);
+      }
+      res.json({ value });
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // --- Select and Submit commands ---
+
+  app.post('/select', async (req, res) => {
+    const { value } = req.body;
+    if (value === undefined) return res.status(400).send('missing value');
+    let { selector } = req.body;
+    if (!selector) return res.status(400).send('missing selector');
+    try {
+      let actualSelector = selector;
+      if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
+        const xpath = lastIdToXPath[selector];
+        if (!xpath) return res.status(400).send('XPath not found for ID');
+        actualSelector = xpath;
+      }
+      const result = await activePage.evaluate(({ sel, val }) => {
+        const el = document.querySelector(sel);
+        if (!el) throw new Error(`Element not found: ${sel}`);
+        el.value = val;
+        el.dispatchEvent(new Event('change', { bubbles: true }));
+        return el.value;
+      }, { sel: actualSelector, val: value });
+      record('select', { selector, value });
+      res.json({ value: result });
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  app.post('/submit', async (req, res) => {
+    let { selector } = req.body;
+    if (!selector) return res.status(400).send('missing selector');
+    try {
+      let actualSelector = selector;
+      if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
+        const xpath = lastIdToXPath[selector];
+        if (!xpath) return res.status(400).send('XPath not found for ID');
+        actualSelector = xpath;
+      }
+      // Verify element exists
+      const element = await activePage.$(actualSelector);
+      if (!element) {
+        return res.status(400).send(`Element not found for selector: ${selector}`);
+      }
+      await activePage.evaluate(sel => {
+        const el = document.querySelector(sel);
+        if (!el) throw new Error(`Element not found: ${sel}`);
+        // Find closest form and submit, or submit directly if it's a form
+        const form = el.tagName === 'FORM' ? el : el.closest('form');
+        if (!form) throw new Error('No form found for selector');
+        form.submit();
+      }, actualSelector);
+      record('submit', { selector });
+      res.send('ok');
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // --- PDF export ---
+
+  app.get('/pdf', async (req, res) => {
+    try {
+      const dir = path.join(os.tmpdir(), 'br_cli');
+      if (!fs.existsSync(dir)) {
+        fs.mkdirSync(dir, { recursive: true });
+      }
+
+      let file;
+      if (req.query.path) {
+        file = path.resolve(req.query.path);
+      } else {
+        const url = new URL(activePage.url());
+        const domain = url.hostname.replace(/[^a-zA-Z0-9.-]/g, '');
+        file = path.join(dir, `page-${domain}-${Date.now()}.pdf`);
+      }
+
+      const pdfBuffer = await activePage.pdf({
+        format: req.query.format || 'Letter',
+        printBackground: true
+      });
+      fs.writeFileSync(file, pdfBuffer);
+      record('pdf', { path: file });
+      res.send(file);
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // --- Download command ---
+
+  app.post('/download', async (req, res) => {
+    const { selector } = req.body;
+    if (!selector) return res.status(400).send('missing selector');
+    try {
+      let resolvedUrl;
+
+      // Check if the argument is already a URL
+      const isUrl = /^https?:\/\//.test(selector) || selector.startsWith('data:');
+
+      if (isUrl) {
+        resolvedUrl = selector;
+      } else {
+        let element;
+        let actualSelector = selector;
+        if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
+          const xpath = lastIdToXPath[selector];
+          if (!xpath) return res.status(400).send('XPath not found for ID');
+          element = await activePage.$(xpath);
+          actualSelector = xpath;
+        } else {
+          element = await activePage.$(actualSelector);
+        }
+        if (!element) {
+          return res.status(400).send(`Element not found for selector: ${selector}`);
+        }
+
+        // Get href or src attribute
+        let url = await element.getAttribute('href');
+        if (!url) url = await element.getAttribute('src');
+        if (!url) {
+          return res.status(400).send('Element has no href or src attribute');
+        }
+
+        // Resolve relative URLs
+        resolvedUrl = await activePage.evaluate((u) => {
+          return new URL(u, document.baseURI).href;
+        }, url);
+      }
+
+      let fileData;
+      let mimeType = null;
+
+      if (resolvedUrl.startsWith('data:')) {
+        // Handle data URLs
+        const match = resolvedUrl.match(/^data:([^;,]+)?(?:;base64)?,(.*)$/);
+        if (!match) return res.status(400).send('Invalid data URL');
+        mimeType = match[1] || 'application/octet-stream';
+        const isBase64 = resolvedUrl.includes(';base64,');
+        if (isBase64) {
+          fileData = Buffer.from(match[2], 'base64');
+        } else {
+          fileData = Buffer.from(decodeURIComponent(match[2]));
+        }
+      } else {
+        // Fetch via page context to preserve cookies/auth
+        const b64 = await activePage.evaluate(async (fetchUrl) => {
+          const resp = await fetch(fetchUrl);
+          if (!resp.ok) throw new Error(`HTTP ${resp.status}: ${resp.statusText}`);
+          const buf = await resp.arrayBuffer();
+          const bytes = new Uint8Array(buf);
+          let binary = '';
+          for (let i = 0; i < bytes.length; i++) binary += String.fromCharCode(bytes[i]);
+          return btoa(binary);
+        }, resolvedUrl);
+        fileData = Buffer.from(b64, 'base64');
+      }
+
+      // Determine output path
+      const dir = path.join(os.tmpdir(), 'br_cli');
+      if (!fs.existsSync(dir)) fs.mkdirSync(dir, { recursive: true });
+
+      let outputPath;
+      if (req.body.output) {
+        outputPath = path.resolve(req.body.output);
+      } else {
+        // Infer filename from URL
+        let filename;
+        try {
+          const parsed = new URL(resolvedUrl);
+          filename = path.basename(parsed.pathname);
+        } catch {}
+        if (!filename || filename === '/' || filename === '') {
+          filename = `download-${Date.now()}`;
+        }
+        outputPath = path.join(dir, filename);
+      }
+
+      fs.writeFileSync(outputPath, fileData);
+      record('download', { selector, url: resolvedUrl, path: outputPath });
+      res.json({ path: outputPath, size: fileData.length, url: resolvedUrl });
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // --- Assert command ---
+
+  app.post('/assert', async (req, res) => {
+    const { script, expected, message } = req.body;
+    if (!script) return res.status(400).send('missing script');
+    try {
+      const result = await activePage.evaluate((scriptToRun) => {
+        return eval(scriptToRun);
+      }, script);
+
+      // Format result for comparison
+      let resultStr;
+      if (result === undefined) resultStr = 'undefined';
+      else if (result === null) resultStr = 'null';
+      else if (typeof result === 'object') resultStr = JSON.stringify(result, null, 2);
+      else resultStr = String(result);
+
+      if (expected !== undefined) {
+        // Equality mode: compare string representations
+        const pass = resultStr === expected;
+        res.json({
+          pass,
+          actual: resultStr,
+          expected,
+          message: message || null
+        });
+      } else {
+        // Truthy mode: check if result is truthy
+        const pass = !!(result);
+        res.json({
+          pass,
+          actual: resultStr,
+          message: message || null
+        });
+      }
+    } catch (err) {
+      res.status(500).send(`Error evaluating assertion: ${err.message}`);
+    }
+  });
+
   app.post('/shutdown', (req, res) => {
     res.send('Shutting down');
     shutdown();

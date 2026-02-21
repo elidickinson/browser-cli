@@ -4,7 +4,7 @@
   "description": "Standalone screenshot server powered by browser-cli",
   "type": "commonjs",
   "bin": {
-    "shot-server": "./server.js"
+    "shot-server": "./index.js"
   },
   "dependencies": {
     "@browsemake/browser-cli": ">=0.1.65",

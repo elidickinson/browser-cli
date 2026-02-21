@@ -1,11 +1,11 @@
-# @browsemake/shot-server
+# shot-server
 
 Standalone screenshot server. Launches a headless browser and exposes an HTTP API for capturing screenshots with image processing (resize, format conversion, quality control).
 
 ## Usage
 
 ```bash
-npx @browsemake/shot-server
+node shot-server/
 ```
 
 The server starts on port 3031 by default and includes a web UI at `http://localhost:3031`.

@@ -1,5 +1,5 @@
 {
-  "name": "@browsemake/shot-server",
+  "name": "shot-server",
   "version": "0.1.0",
   "description": "Standalone screenshot server powered by browser-cli",
   "type": "commonjs",
@@ -7,7 +7,6 @@
     "shot-server": "./index.js"
   },
   "dependencies": {
-    "@browsemake/browser-cli": ">=0.1.65",
     "express": "^4.18.2",
     "patchright": "^1.57.0",
     "sharp": "^0.34.5"

@@ -313,10 +313,10 @@ br extract-text -s "article.content"
 
 ### Screenshot Server
 
-For screenshot capture, see the standalone [`@browsemake/shot-server`](shot-server/) package:
+For screenshot capture, see the standalone [shot-server](shot-server/) package:
 
 ```bash
-npx @browsemake/shot-server
+node shot-server/
 ```
 
 ### Stop the daemon

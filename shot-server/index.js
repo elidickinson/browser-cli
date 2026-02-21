@@ -3,7 +3,7 @@ const express = require('express');
 const { chromium } = require('patchright');
 const sharp = require('sharp');
 const path = require('path');
-const { waitForChallengeBypass, dismissModals, initAdblocker } = require('@browsemake/browser-cli/utils');
+const { waitForChallengeBypass, dismissModals, initAdblocker } = require('../utils');
 
 const PORT = process.env.SHOT_PORT || 3031;
 

@@ -84,4 +84,4 @@ Gracefully shuts down the browser daemon.
 
 ## Screenshot Endpoints
 
-Screenshot endpoints (`/shot`, `/shot-multi`) are provided by the standalone [`@browsemake/shot-server`](shot-server/) package.
+Screenshot endpoints (`/shot`, `/shot-multi`) are provided by the standalone [shot-server](shot-server/) package.

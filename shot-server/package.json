@@ -1,0 +1,14 @@
+{
+  "name": "shot-server",
+  "version": "0.1.0",
+  "description": "Standalone screenshot server powered by browser-cli",
+  "type": "commonjs",
+  "bin": {
+    "shot-server": "./index.js"
+  },
+  "dependencies": {
+    "express": "^4.18.2",
+    "patchright": "^1.57.0",
+    "sharp": "^0.34.5"
+  }
+}

@@ -311,29 +311,13 @@ br extract-text
 br extract-text -s "article.content"
 ```
 
-### HTTP API for Screenshots
+### Screenshot Server
 
-The daemon exposes HTTP endpoints for programmatic screenshot capture:
+For screenshot capture, see the standalone [`@browsemake/shot-server`](shot-server/) package:
 
 ```bash
-# Basic usage
-curl -X POST "http://localhost:3030/goto" -H "Content-Type: application/json" -d '{"url":"https://example.com"}'
-
-# Take a screenshot
-curl -X POST "http://localhost:3030/shot" -H "Content-Type: application/json" -d '{"url":"https://example.com","width":1920,"height":1080}' -o screenshot.png
-
-# Take multiple screenshots from a single page load
-curl -X POST "http://localhost:3030/shot-multi" -H "Content-Type: application/json" -d '{
-  "url": "https://example.com",
-  "width": 1920,
-  "outputs": [
-    {"height": 720, "output_width": 640},
-    {"height": 1080, "output_width": 1280}
-  ]
-}'
+npx @browsemake/shot-server
 ```
-
-See [API.md](API.md) for complete API documentation and examples in multiple languages.
 
 ### Stop the daemon
 

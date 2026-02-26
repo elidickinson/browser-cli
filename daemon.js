@@ -75,11 +75,19 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${instanceName}_${Da
   }
 
   let context, browser;
-  context = await chromium.launchPersistentContext(tmpUserDataDir, {
-    headless: process.env.BR_HEADLESS === 'true',
-    viewport
-  });
-  browser = await context.browser(); // can be null with persistent contexts (browser managed internally)
+  const remoteWs = process.env.BR_REMOTE_WS;
+
+  if (remoteWs) {
+    browser = await chromium.connect(remoteWs);
+    context = await browser.newContext({ viewport });
+    console.log('Connected to remote browser:', remoteWs);
+  } else {
+    context = await chromium.launchPersistentContext(tmpUserDataDir, {
+      headless: process.env.BR_HEADLESS === 'true',
+      viewport
+    });
+    browser = context.browser();
+  }
 
   let pages = [];
   let activePage;
@@ -1015,6 +1023,7 @@ Try using --selector to specify the search input explicitly.`);
   async function shutdown() {
     shuttingDown = true;
     await context.close();
+    if (browser) await browser.close();
     process.exit(0);
   }
 

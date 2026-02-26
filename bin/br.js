@@ -191,6 +191,7 @@ program
   .option('--adblock-lists <paths>', 'Comma-separated list of additional filter list URLs or file paths')
   .option('--foreground', 'Run daemon in foreground (attached to terminal, not detached)')
   .option('--humanlike', 'Add random delays to simulate human-like interactions')
+  .option('--remote <ws-url>', 'Connect to a remote Playwright server via WebSocket URL')
   .action(async (opts) => {
     const name = getInstanceName();
     const instance = getInstance(name);
@@ -273,12 +274,18 @@ program
       env.BR_HUMANLIKE = 'true';
       console.log('Human-like mode enabled');
     }
+    if (opts.remote) {
+      env.BR_REMOTE_WS = opts.remote;
+      console.log('Remote browser:', opts.remote);
+    }
 
-    // Check that browser binary is installed
-    const { chromium } = require('patchright');
-    if (!fs.existsSync(chromium.executablePath())) {
-      console.error('Browser not found. Run: npx patchright install chromium');
-      process.exit(EXIT_ERROR);
+    if (!opts.remote) {
+      // Check that browser binary is installed
+      const { chromium } = require('patchright');
+      if (!fs.existsSync(chromium.executablePath())) {
+        console.error('Browser not found. Run: npx patchright install chromium');
+        process.exit(EXIT_ERROR);
+      }
     }
 
     if (opts.foreground) {

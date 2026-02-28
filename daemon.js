@@ -12,7 +12,7 @@ const { initAdblocker } = require('./utils');
 let adblocker = null;
 
 let lastIdToXPath = {}; // Global variable to store the last idToXPath mapping
-let lastIdToFrameUrl = {}; // Maps view-tree ID → frame URL (null for main frame)
+let lastIdToNodeRef = {}; // Maps view-tree ID → { backendNodeId, frameUrl }
 const secrets = new Set();
 const history = [];
 const consoleLogs = [];
@@ -60,7 +60,9 @@ function humanDelay(minMs, maxMs) {
 }
 
 const instanceName = process.env.BR_INSTANCE || 'default';
-const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${instanceName}_${Date.now()}`);
+const userDataDir = instanceName === 'default'
+  ? path.join(os.tmpdir(), `br_user_data_default_${Date.now()}`)
+  : path.join(os.homedir(), '.config', 'br', 'profiles', instanceName);
 
 (async () => {
   // Initialize adblocker if enabled
@@ -83,7 +85,7 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${instanceName}_${Da
     context = await browser.newContext({ viewport });
     console.log('Connected to remote browser:', remoteWs);
   } else {
-    context = await chromium.launchPersistentContext(tmpUserDataDir, {
+    context = await chromium.launchPersistentContext(userDataDir, {
       headless: process.env.BR_HEADLESS === 'true',
       viewport
     });
@@ -202,33 +204,63 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${instanceName}_${Da
     }
   });
 
-  async function resolveSelector(page, selector) {
-    let element;
-    let actualSelector = selector;
-    let frame = page;
+  // Resolve a view-tree ID to a Playwright ElementHandle via CDP.
+  // Uses backendNodeId + data-attribute marker to bridge CDP → Playwright.
+  // Works across shadow DOM and iframe boundaries.
+  async function resolveBackendNode(page, nodeRef) {
+    const { backendNodeId, frameUrl } = nodeRef;
+    const marker = `br-${Date.now()}-${Math.random().toString(36).slice(2)}`;
 
-    // Handle numeric IDs from view-tree
-    if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
-      const xpath = lastIdToXPath[selector];
-      if (!xpath) throw new Error(`XPath not found for ID: ${selector}`);
-      frame = findFrameForId(page, selector);
-      element = await frame.$(xpath);
-      actualSelector = xpath;
-    } else {
-      element = await page.$(selector);
+    // Find the Playwright frame matching the frameUrl
+    let targetFrame = page.mainFrame();
+    if (frameUrl) {
+      const found = page.frames().find(f => f.url().split('#')[0] === frameUrl.split('#')[0]);
+      if (found) targetFrame = found;
     }
 
-    if (!element) {
-      throw new Error(`Element not found for selector: ${selector}`);
+    // Use page-level CDP session (backendNodeIds are resolved within the page's process)
+    const session = await page.context().newCDPSession(page);
+    try {
+      await session.send('DOM.enable');
+      const { object } = await session.send('DOM.resolveNode', { backendNodeId });
+      // Set marker attribute; for text nodes, walk up to parent element
+      await session.send('Runtime.callFunctionOn', {
+        objectId: object.objectId,
+        functionDeclaration: `function() {
+          var el = this.nodeType === 3 ? this.parentElement : this;
+          if (el && el.setAttribute) el.setAttribute('data-br-id', '${marker}');
+        }`,
+      });
+    } finally {
+      await session.detach();
     }
 
-    return { element, actualSelector, frame };
+    // Playwright CSS pierces shadow DOM by default
+    const element = await targetFrame.$(`[data-br-id="${marker}"]`);
+    if (element) {
+      await element.evaluate(el => el.removeAttribute('data-br-id'));
+    }
+    return { element, frame: targetFrame };
   }
 
-  function findFrameForId(page, id) {
-    const frameUrl = lastIdToFrameUrl[id];
-    if (!frameUrl) return page;
-    return page.frames().find(f => f.url() === frameUrl) || page;
+  async function resolveSelector(page, selector) {
+    // Handle numeric IDs from view-tree
+    if (isNumericId(selector)) {
+      const nodeRef = lastIdToNodeRef[selector];
+      if (!nodeRef) throw new Error(`No node ref for view-tree ID: ${selector}`);
+      const { element, frame } = await resolveBackendNode(page, nodeRef);
+      if (!element) throw new Error(`Element not found for view-tree ID: ${selector}`);
+      return { element, actualSelector: selector, frame };
+    }
+
+    // CSS/XPath selectors — use Playwright directly
+    const element = await page.$(selector);
+    if (!element) throw new Error(`Element not found for selector: ${selector}`);
+    return { element, actualSelector: selector, frame: page };
+  }
+
+  function isNumericId(selector) {
+    return !isNaN(selector) && !isNaN(parseFloat(selector));
   }
 
   async function resolveAndPerformAction(req, res, actionFn, recordAction, recordArgs = {}) {
@@ -236,8 +268,8 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${instanceName}_${Da
     if (!selector) return res.status(400).send('missing selector');
 
     try {
-      const { element, actualSelector, frame } = await resolveSelector(activePage, selector);
-      await actionFn(actualSelector, frame);
+      const { element } = await resolveSelector(activePage, selector);
+      await actionFn(element);
       record(recordAction, { selector, ...recordArgs });
       res.send('ok');
     } catch (err) {
@@ -247,13 +279,9 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
     }
   }
 
-  // TODO: XPath selectors from numeric IDs won't work with querySelector
   app.post('/scroll-into-view', async (req, res) => {
-    await resolveAndPerformAction(req, res, async (selector, frame) => {
-      await frame.evaluate(sel => {
-        const el = document.querySelector(sel);
-        if (el) el.scrollIntoView();
-      }, selector);
+    await resolveAndPerformAction(req, res, async (element) => {
+      await element.scrollIntoViewIfNeeded();
     }, 'scrollIntoView');
   });
 
@@ -275,16 +303,16 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
   app.post('/fill', async (req, res) => {
     const { text } = req.body;
     if (text === undefined) return res.status(400).send('missing text');
-    await resolveAndPerformAction(req, res, async (selector, frame) => {
-      await frame.fill(selector, text);
+    await resolveAndPerformAction(req, res, async (element) => {
+      await element.fill(text);
     }, 'fill', { text });
   });
 
   app.post('/fill-secret', async (req, res) => {
     const { secret } = req.body;
     if (secret === undefined) return res.status(400).send('missing secret');
-    await resolveAndPerformAction(req, res, async (selector, frame) => {
-      await frame.fill(selector, secret);
+    await resolveAndPerformAction(req, res, async (element) => {
+      await element.fill(secret);
       secrets.add(secret);
     }, 'fill-secret');
   });
@@ -292,14 +320,14 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
   app.post('/type', async (req, res) => {
     const { text } = req.body;
     if (text === undefined) return res.status(400).send('missing text');
-    await resolveAndPerformAction(req, res, async (selector, frame) => {
+    await resolveAndPerformAction(req, res, async (element) => {
       if (process.env.BR_HUMANLIKE === 'true') {
         for (const char of text) {
-          await frame.type(selector, char);
+          await element.type(char);
           await humanDelay(30, 80);
         }
       } else {
-        await frame.type(selector, text);
+        await element.type(text);
       }
     }, 'type', { text });
   });
@@ -394,9 +422,9 @@ Try using --selector to specify the search input explicitly.`);
   });
 
   app.post('/click', async (req, res) => {
-    await resolveAndPerformAction(req, res, async (selector, frame) => {
+    await resolveAndPerformAction(req, res, async (element) => {
       await humanDelay(50, 150);
-      await frame.click(selector);
+      await element.click();
     }, 'click');
   });
 
@@ -455,16 +483,74 @@ Try using --selector to specify the search input explicitly.`);
       const session = await page.context().newCDPSession(page);
       await session.send('DOM.enable');
       await session.send('Accessibility.enable');
+      await session.send('Page.enable');
 
+      // Get AX tree for main frame
       const { nodes: axNodes } = await session.send('Accessibility.getFullAXTree');
+      // Track frame URL per AX node (null = main frame)
+      const axNodeFrameUrl = new Map();
+      for (const n of axNodes) axNodeFrameUrl.set(n.nodeId, null);
+
+      // Get AX trees from child frames and graft them onto Iframe AX nodes
+      const { frameTree } = await session.send('Page.getFrameTree');
+      const childFrames = [];
+      (function collectFrames(tree) {
+        for (const child of tree.childFrames || []) {
+          childFrames.push(child.frame);
+          collectFrames(child);
+        }
+      })(frameTree);
+
+      // Map Iframe AX nodes (childless) by backendDOMNodeId for grafting
+      const iframeAxByBackendId = new Map();
+      for (const n of axNodes) {
+        if (n.role?.value === 'Iframe' && (!n.childIds || n.childIds.length === 0)) {
+          iframeAxByBackendId.set(n.backendDOMNodeId, n);
+        }
+      }
+
+      for (const childFrame of childFrames) {
+        try {
+          const { nodes: frameNodes } = await session.send('Accessibility.getFullAXTree', { frameId: childFrame.id });
+          if (!frameNodes.length) continue;
+
+          // Offset node IDs to avoid collisions across frames
+          const offset = (childFrames.indexOf(childFrame) + 1) * 100000;
+          for (const n of frameNodes) {
+            n.nodeId = String(Number(n.nodeId) + offset);
+            if (n.childIds) n.childIds = n.childIds.map(id => String(Number(id) + offset));
+            axNodeFrameUrl.set(n.nodeId, childFrame.url);
+          }
+
+          // Find the root of this frame's AX tree
+          const frameChildSet = new Set();
+          for (const n of frameNodes) {
+            for (const cid of n.childIds || []) frameChildSet.add(cid);
+          }
+          const frameRoot = frameNodes.find(n => !frameChildSet.has(n.nodeId));
+
+          // Match frame to its parent Iframe AX node via DOM:
+          // The iframe DOM node's contentDocument.frameId matches childFrame.id
+          // We can also match by looking up the iframe DOM node that owns this frame
+          // Use DOM.getFrameOwner to find the backendNodeId of the iframe element
+          try {
+            const { backendNodeId: ownerBackendId } = await session.send('DOM.getFrameOwner', { frameId: childFrame.id });
+            const iframeAx = iframeAxByBackendId.get(ownerBackendId);
+            if (iframeAx && frameRoot) {
+              iframeAx.childIds = [frameRoot.nodeId];
+            }
+          } catch {}
+
+          axNodes.push(...frameNodes);
+        } catch {}
+      }
+
       const { root: domRoot } = await session.send('DOM.getDocument', { depth: -1, pierce: true });
       await session.detach();
 
       const nodeIdToDomNodeMap = new Map();
       const backendIdToDomNodeMap = new Map();
       let idToXPath = {};
-      let idToFrameUrl = {};
-
       function generateXPath(node, parentNode) {
         if (!node || node.nodeName === '#document') {
           return '';
@@ -483,12 +569,11 @@ Try using --selector to specify the search input explicitly.`);
         return segment;
       }
 
-      function traverseDomAndMap(node, parentXPath = '', parentNode = null, frameUrl = null) {
+      function traverseDomAndMap(node, parentXPath = '', parentNode = null) {
         if (!node) return;
 
         nodeIdToDomNodeMap.set(node.nodeId, node);
         backendIdToDomNodeMap.set(node.backendNodeId, node);
-        if (node.nodeId) idToFrameUrl[node.nodeId] = frameUrl;
 
         const currentSegment = generateXPath(node, parentNode);
         const currentXPath = parentXPath ? `${parentXPath}/${currentSegment}` : `/${currentSegment}`;
@@ -499,14 +584,18 @@ Try using --selector to specify the search input explicitly.`);
 
         if (node.children) {
           for (const child of node.children) {
-            traverseDomAndMap(child, currentXPath, node, frameUrl);
+            traverseDomAndMap(child, currentXPath, node);
           }
         }
 
-        // Enter iframe content documents (XPath resets at document boundary)
+        // Enter iframe content documents and shadow roots
         if (node.contentDocument) {
-          const iframeUrl = node.contentDocument.documentURL;
-          traverseDomAndMap(node.contentDocument, '', null, iframeUrl);
+          traverseDomAndMap(node.contentDocument, '', null);
+        }
+        if (node.shadowRoots) {
+          for (const shadow of node.shadowRoots) {
+            traverseDomAndMap(shadow, currentXPath, node);
+          }
         }
       }
 
@@ -520,6 +609,8 @@ Try using --selector to specify the search input explicitly.`);
       }
       const rootAx = axNodes.find(n => !childSet.has(n.nodeId)) || axNodes[0];
 
+      let idToNodeRef = {};
+
       function buildTree(nodeId) {
         const axNode = axMap.get(nodeId);
         if (!axNode) return null;
@@ -529,10 +620,17 @@ Try using --selector to specify the search input explicitly.`);
         const name = axNode.name?.value || '';
         const tag = domNode ? domNode.nodeName.toLowerCase() : null;
 
-        // Store xpath and frame mappings for this node
+        // Store node reference for CDP-based element resolution
+        if (axNode.backendDOMNodeId) {
+          idToNodeRef[axNode.nodeId] = {
+            backendNodeId: axNode.backendDOMNodeId,
+            frameUrl: axNodeFrameUrl.get(nodeId) || null
+          };
+        }
+
+        // Store xpath mapping for this node
         if (domNode && domNode.nodeId) {
           idToXPath[axNode.nodeId] = idToXPath[domNode.nodeId];
-          idToFrameUrl[axNode.nodeId] = idToFrameUrl[domNode.nodeId];
         }
 
         const node = {
@@ -557,7 +655,7 @@ Try using --selector to specify the search input explicitly.`);
 
       const tree = buildTree(rootAx.nodeId);
       lastIdToXPath = idToXPath; // Store the mapping globally
-      lastIdToFrameUrl = idToFrameUrl;
+      lastIdToNodeRef = idToNodeRef;
       res.json({ tree });
     } catch (err) {
       res.status(500).send(err.message + " " + err.stack);

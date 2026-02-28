@@ -12,6 +12,7 @@ const { initAdblocker } = require('./utils');
 let adblocker = null;
 
 let lastIdToXPath = {}; // Global variable to store the last idToXPath mapping
+let lastIdToFrameUrl = {}; // Maps view-tree ID → frame URL (null for main frame)
 const secrets = new Set();
 const history = [];
 const consoleLogs = [];
@@ -202,50 +203,41 @@ const tmpUserDataDir = path.join(os.tmpdir(), `br_user_data_${instanceName}_${Da
   });
 
   async function resolveSelector(page, selector) {
-  let element;
-  let actualSelector = selector;
+    let element;
+    let actualSelector = selector;
+    let frame = page;
 
-  // Handle numeric IDs from view-tree
-  if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
-    const xpath = lastIdToXPath[selector];
-    if (!xpath) throw new Error(`XPath not found for ID: ${selector}`);
-    element = await page.$(xpath);
-    actualSelector = xpath;
-  } else {
-    // Handle CSS selectors and XPath expressions
-    element = await page.$(selector);
+    // Handle numeric IDs from view-tree
+    if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
+      const xpath = lastIdToXPath[selector];
+      if (!xpath) throw new Error(`XPath not found for ID: ${selector}`);
+      frame = findFrameForId(page, selector);
+      element = await frame.$(xpath);
+      actualSelector = xpath;
+    } else {
+      element = await page.$(selector);
+    }
+
+    if (!element) {
+      throw new Error(`Element not found for selector: ${selector}`);
+    }
+
+    return { element, actualSelector, frame };
   }
 
-  if (!element) {
-    throw new Error(`Element not found for selector: ${selector}`);
+  function findFrameForId(page, id) {
+    const frameUrl = lastIdToFrameUrl[id];
+    if (!frameUrl) return page;
+    return page.frames().find(f => f.url() === frameUrl) || page;
   }
 
-  return { element, actualSelector };
-}
-
-async function resolveAndPerformAction(req, res, actionFn, recordAction, recordArgs = {}) {
+  async function resolveAndPerformAction(req, res, actionFn, recordAction, recordArgs = {}) {
     let { selector } = req.body;
     if (!selector) return res.status(400).send('missing selector');
 
     try {
-      let element;
-      let actualSelector = selector;
-
-      // Handle numeric IDs from view-tree
-      if (!isNaN(selector) && !isNaN(parseFloat(selector))) {
-        const xpath = lastIdToXPath[selector];
-        if (!xpath) return res.status(400).send('XPath not found for ID');
-        element = await activePage.$(xpath);
-        actualSelector = xpath;
-      } else {
-        // Handle CSS selectors and XPath expressions
-        element = await activePage.$(selector);
-      }
-
-      if (!element) {
-        return res.status(400).send(`Element not found for selector: ${selector}`);
-      }
-      await actionFn(actualSelector);
+      const { element, actualSelector, frame } = await resolveSelector(activePage, selector);
+      await actionFn(actualSelector, frame);
       record(recordAction, { selector, ...recordArgs });
       res.send('ok');
     } catch (err) {
@@ -257,8 +249,8 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
 
   // TODO: XPath selectors from numeric IDs won't work with querySelector
   app.post('/scroll-into-view', async (req, res) => {
-    await resolveAndPerformAction(req, res, async (selector) => {
-      await activePage.evaluate(sel => {
+    await resolveAndPerformAction(req, res, async (selector, frame) => {
+      await frame.evaluate(sel => {
         const el = document.querySelector(sel);
         if (el) el.scrollIntoView();
       }, selector);
@@ -283,16 +275,16 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
   app.post('/fill', async (req, res) => {
     const { text } = req.body;
     if (text === undefined) return res.status(400).send('missing text');
-    await resolveAndPerformAction(req, res, async (selector) => {
-      await activePage.fill(selector, text);
+    await resolveAndPerformAction(req, res, async (selector, frame) => {
+      await frame.fill(selector, text);
     }, 'fill', { text });
   });
 
   app.post('/fill-secret', async (req, res) => {
     const { secret } = req.body;
     if (secret === undefined) return res.status(400).send('missing secret');
-    await resolveAndPerformAction(req, res, async (selector) => {
-      await activePage.fill(selector, secret);
+    await resolveAndPerformAction(req, res, async (selector, frame) => {
+      await frame.fill(selector, secret);
       secrets.add(secret);
     }, 'fill-secret');
   });
@@ -300,14 +292,14 @@ Use CSS selectors (e.g., "input"), XPath (e.g., "xpath=//input"), or numeric IDs
   app.post('/type', async (req, res) => {
     const { text } = req.body;
     if (text === undefined) return res.status(400).send('missing text');
-    await resolveAndPerformAction(req, res, async (selector) => {
+    await resolveAndPerformAction(req, res, async (selector, frame) => {
       if (process.env.BR_HUMANLIKE === 'true') {
         for (const char of text) {
-          await activePage.type(selector, char);
+          await frame.type(selector, char);
           await humanDelay(30, 80);
         }
       } else {
-        await activePage.type(selector, text);
+        await frame.type(selector, text);
       }
     }, 'type', { text });
   });
@@ -402,9 +394,9 @@ Try using --selector to specify the search input explicitly.`);
   });
 
   app.post('/click', async (req, res) => {
-    await resolveAndPerformAction(req, res, async (selector) => {
+    await resolveAndPerformAction(req, res, async (selector, frame) => {
       await humanDelay(50, 150);
-      await activePage.click(selector);
+      await frame.click(selector);
     }, 'click');
   });
 
@@ -471,6 +463,7 @@ Try using --selector to specify the search input explicitly.`);
       const nodeIdToDomNodeMap = new Map();
       const backendIdToDomNodeMap = new Map();
       let idToXPath = {};
+      let idToFrameUrl = {};
 
       function generateXPath(node, parentNode) {
         if (!node || node.nodeName === '#document') {
@@ -490,11 +483,12 @@ Try using --selector to specify the search input explicitly.`);
         return segment;
       }
 
-      function traverseDomAndMap(node, parentXPath = '', parentNode = null) {
+      function traverseDomAndMap(node, parentXPath = '', parentNode = null, frameUrl = null) {
         if (!node) return;
 
         nodeIdToDomNodeMap.set(node.nodeId, node);
         backendIdToDomNodeMap.set(node.backendNodeId, node);
+        if (node.nodeId) idToFrameUrl[node.nodeId] = frameUrl;
 
         const currentSegment = generateXPath(node, parentNode);
         const currentXPath = parentXPath ? `${parentXPath}/${currentSegment}` : `/${currentSegment}`;
@@ -505,8 +499,14 @@ Try using --selector to specify the search input explicitly.`);
 
         if (node.children) {
           for (const child of node.children) {
-            traverseDomAndMap(child, currentXPath, node);
+            traverseDomAndMap(child, currentXPath, node, frameUrl);
           }
+        }
+
+        // Enter iframe content documents (XPath resets at document boundary)
+        if (node.contentDocument) {
+          const iframeUrl = node.contentDocument.documentURL;
+          traverseDomAndMap(node.contentDocument, '', null, iframeUrl);
         }
       }
 
@@ -529,9 +529,10 @@ Try using --selector to specify the search input explicitly.`);
         const name = axNode.name?.value || '';
         const tag = domNode ? domNode.nodeName.toLowerCase() : null;
 
-        // Store xpath mapping for this node
+        // Store xpath and frame mappings for this node
         if (domNode && domNode.nodeId) {
           idToXPath[axNode.nodeId] = idToXPath[domNode.nodeId];
+          idToFrameUrl[axNode.nodeId] = idToFrameUrl[domNode.nodeId];
         }
 
         const node = {
@@ -556,6 +557,7 @@ Try using --selector to specify the search input explicitly.`);
 
       const tree = buildTree(rootAx.nodeId);
       lastIdToXPath = idToXPath; // Store the mapping globally
+      lastIdToFrameUrl = idToFrameUrl;
       res.json({ tree });
     } catch (err) {
       res.status(500).send(err.message + " " + err.stack);

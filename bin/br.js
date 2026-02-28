@@ -166,7 +166,7 @@ function getInstanceName() {
   // Parse --name from process.argv before commander processes subcommands
   const idx = process.argv.indexOf('--name') !== -1 ? process.argv.indexOf('--name') : process.argv.indexOf('-n');
   if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
-  return 'default';
+  return process.env.BR_INSTANCE || 'default';
 }
 
 function getInstancePort(name) {

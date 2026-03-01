@@ -175,10 +175,67 @@ function getInstancePort(name) {
   return instance.port;
 }
 
-function sendToInstance(urlPath, method = 'GET', body) {
+async function startDaemon(name) {
+  // Clean up stale entry if present
+  const existing = getInstance(name);
+  if (existing) {
+    try { process.kill(existing.pid); } catch {}
+    unregisterInstance(name);
+  }
+
+  const port = (name === 'default' && !getInstance('default') && await isPortFree(3030)) ? 3030 : await allocatePort();
+  const env = { ...process.env, BR_PORT: String(port), BR_INSTANCE: name };
+
+  if (!env.BR_REMOTE_WS) {
+    const { chromium } = require('patchright');
+    if (!fs.existsSync(chromium.executablePath())) {
+      throw new Error('Browser not found. Run: npx patchright install chromium');
+    }
+  }
+
+  const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {
+    detached: true, stdio: 'ignore', env
+  });
+  child.unref();
+  registerInstance(name, port, child.pid);
+
+  // Poll health endpoint
+  const startTime = Date.now();
+  while (Date.now() - startTime < 5000) {
+    try {
+      await send('/health', 'GET', undefined, port);
+      return port;
+    } catch {
+      await new Promise(r => setTimeout(r, 100));
+    }
+  }
+  unregisterInstance(name);
+  throw new Error('Daemon failed to start in a timely manner.');
+}
+
+async function sendToInstance(urlPath, method = 'GET', body) {
   const name = getInstanceName();
-  const port = getInstancePort(name);
-  return send(urlPath, method, body, port);
+  let port;
+  try {
+    port = getInstancePort(name);
+  } catch (err) {
+    if (err.code === 'DAEMON_NOT_RUNNING' && process.env.BR_AUTOSTART) {
+      port = await startDaemon(name);
+      console.error(`Auto-started daemon "${name}" on port ${port}`);
+    } else {
+      throw err;
+    }
+  }
+  try {
+    return await send(urlPath, method, body, port);
+  } catch (err) {
+    if (err.code === 'DAEMON_NOT_RUNNING' && process.env.BR_AUTOSTART) {
+      port = await startDaemon(name);
+      console.error(`Auto-started daemon "${name}" on port ${port}`);
+      return send(urlPath, method, body, port);
+    }
+    throw err;
+  }
 }
 
 program
@@ -582,6 +639,12 @@ program
       if (node.name) parts.push(`: ${node.name}`);
       console.log(parts.join(' '));
 
+      if (node.options && node.options.length > 0) {
+        const shown = node.options.map(o => `${o.value}="${o.label}"${o.selected ? '*' : ''}`).join(', ');
+        const more = node.totalOptions > node.options.length ? ` (+${node.totalOptions - node.options.length} more)` : '';
+        console.log(`${'  '.repeat(indent + 1)}options: ${shown}${more}`);
+      }
+
       if (node.children && node.children.length > 0) {
         node.children.forEach(child => displayNode(child, indent + 1));
       }
@@ -787,7 +850,7 @@ program
   .argument('<value>', 'The value to select.')
   .action(asyncAction(async (selector, value) => {
     const response = await sendToInstance('/select', 'POST', { selector, value });
-    console.log('Selected:', response.value);
+    console.log(`Selected: "${response.value}" (${response.label})`);
   }));
 
 program

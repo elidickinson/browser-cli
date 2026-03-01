@@ -642,6 +642,24 @@ Try using --selector to specify the search input explicitly.`);
           children: []
         };
 
+        // Extract options from <select> elements
+        if (tag === 'select' && domNode && domNode.children) {
+          const optionNodes = domNode.children.filter(c => c.nodeName === 'OPTION');
+          node.totalOptions = optionNodes.length;
+          node.options = optionNodes.slice(0, 10).map(opt => {
+            const attrs = opt.attributes || [];
+            let value = '';
+            let selected = false;
+            for (let i = 0; i < attrs.length; i += 2) {
+              if (attrs[i] === 'value') value = attrs[i + 1];
+              if (attrs[i] === 'selected') selected = true;
+            }
+            const textChild = opt.children?.find(c => c.nodeType === 3);
+            const label = textChild?.nodeValue?.trim() || '';
+            return { value, label, selected };
+          });
+        }
+
         // Recursively build children
         for (const childId of axNode.childIds || []) {
           const childNode = buildTree(childId);
@@ -931,13 +949,20 @@ Try using --selector to specify the search input explicitly.`);
     if (!selector) return res.status(400).send('missing selector');
     try {
       const { element } = await resolveSelector(activePage, selector);
-      await element.evaluate((el, val) => {
-        el.value = val;
+      const result = await element.evaluate((el, val) => {
+        // Try matching by value first, then by label text (case-insensitive)
+        let option = Array.from(el.options).find(o => o.value === val);
+        if (!option) {
+          const lowerVal = val.toLowerCase().trim();
+          option = Array.from(el.options).find(o => o.textContent.trim().toLowerCase() === lowerVal);
+        }
+        if (!option) throw new Error(`No option matching "${val}" found`);
+        el.value = option.value;
         el.dispatchEvent(new Event('change', { bubbles: true }));
+        return { value: option.value, label: option.textContent.trim() };
       }, value);
-      const result = await element.evaluate(el => el.value);
       record('select', { selector, value });
-      res.json({ value: result });
+      res.json(result);
     } catch (err) {
       res.status(500).send(err.message);
     }

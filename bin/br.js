@@ -176,10 +176,9 @@ function getInstancePort(name) {
 }
 
 async function startDaemon(name) {
-  // Re-invoke "br start" with BR_AUTOSTART_PARAMS so all option parsing stays in one place
-  const extraArgs = process.env.BR_AUTOSTART_PARAMS ? process.env.BR_AUTOSTART_PARAMS.split(/\s+/).filter(Boolean) : [];
-  const args = [process.argv[1], '--name', name, 'start', ...extraArgs];
+  const args = [process.argv[1], '--name', name, 'start'];
   const { execFileSync } = require('child_process');
+  // Unset BR_AUTOSTART to prevent recursion; BR_PARAMS flows through naturally
   execFileSync(process.execPath, args, { stdio: 'pipe', env: { ...process.env, BR_AUTOSTART: '' } });
 
   const instance = getInstance(name);
@@ -941,6 +940,16 @@ program.on('command:*', (operands) => {
   program.outputHelp();
   process.exit(EXIT_ERROR);
 });
+
+// Inject BR_PARAMS env var as default flags for "br start"
+if (process.env.BR_PARAMS) {
+  const subcommandIdx = process.argv.findIndex(a => a === 'start');
+  if (subcommandIdx !== -1) {
+    const extra = process.env.BR_PARAMS.split(/\s+/).filter(Boolean);
+    // Insert after "start" so commander sees them as start's options
+    process.argv.splice(subcommandIdx + 1, 0, ...extra);
+  }
+}
 
 try {
   program.parse();

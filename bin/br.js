@@ -608,7 +608,7 @@ program
     }
 
     function displayNode(node, indent = 0) {
-      const parts = [`${'  '.repeat(indent)}[${node.id}]`];
+      const parts = [`${'\t'.repeat(indent)}[${node.id}]`];
       if (node.role) parts.push(node.role);
       if (node.tag) parts.push(node.tag);
       if (node.name) parts.push(`: ${node.name}`);
@@ -617,7 +617,7 @@ program
       if (node.options && node.options.length > 0) {
         const shown = node.options.map(o => `${o.value}="${o.label}"${o.selected ? '*' : ''}`).join(', ');
         const more = node.totalOptions > node.options.length ? ` (+${node.totalOptions - node.options.length} more)` : '';
-        console.log(`${'  '.repeat(indent + 1)}options: ${shown}${more}`);
+        console.log(`${'\t'.repeat(indent + 1)}options: ${shown}${more}`);
       }
 
       if (node.children && node.children.length > 0) {

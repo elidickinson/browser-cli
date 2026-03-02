@@ -479,6 +479,7 @@ Try using --selector to specify the search input explicitly.`);
 
   app.get('/tree', async (req, res) => {
     try {
+      const full = req.query.full === '1';
       const page = activePage;
       const session = await page.context().newCDPSession(page);
       await session.send('DOM.enable');
@@ -610,8 +611,14 @@ Try using --selector to specify the search input explicitly.`);
       const rootAx = axNodes.find(n => !childSet.has(n.nodeId)) || axNodes[0];
 
       let idToNodeRef = {};
+      let omittedCount = 0;
 
-      function buildTree(nodeId) {
+      const interactiveRoles = new Set([
+        'button', 'link', 'textbox', 'checkbox', 'radio', 'combobox',
+        'menuitem', 'tab', 'slider', 'spinbutton', 'switch', 'searchbox'
+      ]);
+
+      function buildTree(nodeId, parentName = null) {
         const axNode = axMap.get(nodeId);
         if (!axNode) return null;
 
@@ -619,6 +626,18 @@ Try using --selector to specify the search input explicitly.`);
         const role = axNode.role?.value || '';
         const name = axNode.name?.value || '';
         const tag = domNode ? domNode.nodeName.toLowerCase() : null;
+        const childIds = axNode.childIds || [];
+
+        // Always drop InlineTextBox (even in full mode)
+        if (role === 'InlineTextBox') return null;
+
+        if (!full) {
+          // Drop StaticText whose name matches parent
+          if (role === 'StaticText' && name && name === parentName) {
+            omittedCount++;
+            return null;
+          }
+        }
 
         // Store node reference for CDP-based element resolution
         if (axNode.backendDOMNodeId) {
@@ -661,11 +680,18 @@ Try using --selector to specify the search input explicitly.`);
         }
 
         // Recursively build children
-        for (const childId of axNode.childIds || []) {
-          const childNode = buildTree(childId);
+        for (const childId of childIds) {
+          const childNode = buildTree(childId, name);
           if (childNode) {
             node.children.push(childNode);
           }
+        }
+
+        // Drop empty non-interactive 'none' nodes (checked after recursion
+        // since children like InlineTextBox may have been filtered out)
+        if (!full && role === 'none' && node.children.length === 0) {
+          omittedCount++;
+          return null;
         }
 
         return node;
@@ -674,7 +700,9 @@ Try using --selector to specify the search input explicitly.`);
       const tree = buildTree(rootAx.nodeId);
       lastIdToXPath = idToXPath; // Store the mapping globally
       lastIdToNodeRef = idToNodeRef;
-      res.json({ tree });
+      const result = { tree };
+      if (omittedCount > 0) result.omittedCount = omittedCount;
+      res.json(result);
     } catch (err) {
       res.status(500).send(err.message + " " + err.stack);
     }

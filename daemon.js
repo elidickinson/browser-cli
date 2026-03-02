@@ -687,11 +687,18 @@ Try using --selector to specify the search input explicitly.`);
           }
         }
 
-        // Drop empty non-interactive 'none' nodes (checked after recursion
-        // since children like InlineTextBox may have been filtered out)
-        if (!full && role === 'none' && node.children.length === 0) {
-          omittedCount++;
-          return null;
+        if (!full) {
+          // Drop empty non-interactive 'none' nodes (checked after recursion
+          // since children like InlineTextBox may have been filtered out)
+          if (role === 'none' && node.children.length === 0) {
+            omittedCount++;
+            return null;
+          }
+          // Collapse single-child wrapper divs with no name
+          if ((role === 'none' || role === 'generic') && !name && tag === 'div' && node.children.length === 1) {
+            omittedCount++;
+            return node.children[0];
+          }
         }
 
         return node;

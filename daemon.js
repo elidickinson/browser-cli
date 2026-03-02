@@ -945,6 +945,7 @@ Try using --selector to specify the search input explicitly.`);
   app.post('/select', async (req, res) => {
     const { value } = req.body;
     if (value === undefined) return res.status(400).send('missing value');
+    const strValue = String(value);  // Coerce to string for toLowerCase() support
     const { selector } = req.body;
     if (!selector) return res.status(400).send('missing selector');
     try {
@@ -960,7 +961,7 @@ Try using --selector to specify the search input explicitly.`);
         el.value = option.value;
         el.dispatchEvent(new Event('change', { bubbles: true }));
         return { value: option.value, label: option.textContent.trim() };
-      }, value);
+      }, strValue);
       record('select', { selector, value });
       res.json(result);
     } catch (err) {

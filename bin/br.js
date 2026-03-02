@@ -176,41 +176,15 @@ function getInstancePort(name) {
 }
 
 async function startDaemon(name) {
-  // Clean up stale entry if present
-  const existing = getInstance(name);
-  if (existing) {
-    try { process.kill(existing.pid); } catch {}
-    unregisterInstance(name);
-  }
+  // Re-invoke "br start" with BR_AUTOSTART_PARAMS so all option parsing stays in one place
+  const extraArgs = process.env.BR_AUTOSTART_PARAMS ? process.env.BR_AUTOSTART_PARAMS.split(/\s+/).filter(Boolean) : [];
+  const args = [process.argv[1], '--name', name, 'start', ...extraArgs];
+  const { execFileSync } = require('child_process');
+  execFileSync(process.execPath, args, { stdio: 'pipe', env: { ...process.env, BR_AUTOSTART: '' } });
 
-  const port = (name === 'default' && !getInstance('default') && await isPortFree(3030)) ? 3030 : await allocatePort();
-  const env = { ...process.env, BR_PORT: String(port), BR_INSTANCE: name };
-
-  if (!env.BR_REMOTE_WS) {
-    const { chromium } = require('patchright');
-    if (!fs.existsSync(chromium.executablePath())) {
-      throw new Error('Browser not found. Run: npx patchright install chromium');
-    }
-  }
-
-  const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {
-    detached: true, stdio: 'ignore', env
-  });
-  child.unref();
-  registerInstance(name, port, child.pid);
-
-  // Poll health endpoint
-  const startTime = Date.now();
-  while (Date.now() - startTime < 5000) {
-    try {
-      await send('/health', 'GET', undefined, port);
-      return port;
-    } catch {
-      await new Promise(r => setTimeout(r, 100));
-    }
-  }
-  unregisterInstance(name);
-  throw new Error('Daemon failed to start in a timely manner.');
+  const instance = getInstance(name);
+  if (!instance) throw new Error('Daemon failed to start.');
+  return instance.port;
 }
 
 async function sendToInstance(urlPath, method = 'GET', body) {

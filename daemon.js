@@ -59,9 +59,9 @@ function humanDelay(minMs, maxMs) {
   return new Promise(r => setTimeout(r, delay));
 }
 
-const instanceName = process.env.BR_INSTANCE || 'default';
-const userDataDir = instanceName === 'default'
-  ? path.join(os.tmpdir(), `br_user_data_default_${Date.now()}`)
+const instanceName = process.env.BR_INSTANCE || 'anonymous';
+const userDataDir = instanceName === 'anonymous'
+  ? path.join(os.tmpdir(), `br_user_data_anonymous_${Date.now()}`)
   : path.join(os.homedir(), '.config', 'br', 'profiles', instanceName);
 
 (async () => {
@@ -79,10 +79,19 @@ const userDataDir = instanceName === 'default'
 
   let context, browser;
   const remoteWs = process.env.BR_REMOTE_WS;
+  const isNamedInstance = instanceName !== 'anonymous';
+  const storageStatePath = isNamedInstance
+    ? path.join(userDataDir, 'storage.json')
+    : null;
 
   if (remoteWs) {
     browser = await chromium.connect(remoteWs);
-    context = await browser.newContext({ viewport });
+    const contextOpts = { viewport };
+    if (storageStatePath && fs.existsSync(storageStatePath)) {
+      contextOpts.storageState = storageStatePath;
+      console.log('Restored storage state from', storageStatePath);
+    }
+    context = await browser.newContext(contextOpts);
     console.log('Connected to remote browser:', remoteWs);
   } else {
     context = await chromium.launchPersistentContext(userDataDir, {
@@ -1198,6 +1207,11 @@ Try using --selector to specify the search input explicitly.`);
 
   async function shutdown() {
     shuttingDown = true;
+    if (remoteWs && storageStatePath) {
+      fs.mkdirSync(path.dirname(storageStatePath), { recursive: true });
+      await context.storageState({ path: storageStatePath });
+      console.log('Saved storage state to', storageStatePath);
+    }
     await context.close();
     if (browser) await browser.close();
     process.exit(0);

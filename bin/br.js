@@ -160,18 +160,18 @@ program.addHelpText('before', () => {
   return `\nDaemon status: ${getDaemonStatus()}\n`;
 });
 
-program.option('-n, --name <name>', 'Instance name', 'default');
+program.option('-n, --name <name>', 'Instance name', 'anonymous');
 
 function getInstanceName() {
   // Parse --name from process.argv before commander processes subcommands
   const idx = process.argv.indexOf('--name') !== -1 ? process.argv.indexOf('--name') : process.argv.indexOf('-n');
   if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
-  return process.env.BR_INSTANCE || 'default';
+  return process.env.BR_INSTANCE || 'anonymous';
 }
 
 function getInstancePort(name) {
   const instance = getInstance(name);
-  if (!instance) throw new DaemonNotRunningError(`Instance is not running. Start it with: br${name !== 'default' ? ` --name ${name}` : ''} start`);
+  if (!instance) throw new DaemonNotRunningError(`Instance is not running. Start it with: br${name !== 'anonymous' ? ` --name ${name}` : ''} start`);
   return instance.port;
 }
 
@@ -243,9 +243,9 @@ program
       }
     }
 
-    // Allocate port (default instance prefers 3030)
+    // Allocate port (anonymous instance prefers 3030)
     let port;
-    if (name === 'default' && !getInstance('default') && await isPortFree(3030)) {
+    if (name === 'anonymous' && !getInstance('anonymous') && await isPortFree(3030)) {
       port = 3030;
     } else {
       port = await allocatePort();

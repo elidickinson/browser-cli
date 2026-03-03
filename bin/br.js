@@ -596,8 +596,12 @@ program
   .command('view-tree')
   .description("Display a hierarchical tree of the page's accessibility and DOM nodes.")
   .option('--full', 'Show all nodes without smart omission')
+  .option('--root <id>', 'Show only the subtree under the given view-tree node ID')
   .action(async (opts) => {
-    const url = opts.full ? '/tree?full=1' : '/tree';
+    const params = new URLSearchParams();
+    if (opts.full) params.append('full', '1');
+    if (opts.root) params.append('root', opts.root);
+    const url = params.toString() ? `/tree?${params}` : '/tree';
     const response = await sendToInstance(url);
     let tree = response.tree;
 

@@ -704,9 +704,24 @@ Try using --selector to specify the search input explicitly.`);
         return node;
       }
 
-      const tree = buildTree(rootAx.nodeId);
+      let tree = buildTree(rootAx.nodeId);
       lastIdToXPath = idToXPath; // Store the mapping globally
       lastIdToNodeRef = idToNodeRef;
+
+      if (req.query.root) {
+        const findNode = (node, id) => {
+          if (!node) return null;
+          if (node.id === id) return node;
+          for (const child of node.children || []) {
+            const found = findNode(child, id);
+            if (found) return found;
+          }
+          return null;
+        };
+        tree = findNode(tree, req.query.root);
+        if (!tree) return res.status(400).send(`Node not found for ID: ${req.query.root}`);
+      }
+
       const result = { tree };
       if (omittedCount > 0) result.omittedCount = omittedCount;
       res.json(result);

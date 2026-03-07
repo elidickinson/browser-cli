@@ -363,12 +363,13 @@ program
 
       // Poll health endpoint to confirm daemon is ready
       const startTime = Date.now();
+      const healthTimeout = opts.remote ? 15000 : 10000;
       const checkHealth = async () => {
         // Check if daemon process is still alive
         let alive = true;
         try { process.kill(child.pid, 0); } catch { alive = false; }
 
-        if (!alive || Date.now() - startTime > 10000) {
+        if (!alive || Date.now() - startTime > healthTimeout) {
           unregisterInstance(name);
           const log = readLogTail(logFile);
           if (log) {
@@ -514,7 +515,7 @@ program
   }));
 
 program
-  .command('press')
+  .command('press').alias('key')
   .description("Simulate a single key press (e.g., 'Enter', 'Tab').")
   .argument('<key>', "The key to press, as defined in Playwright's documentation.")
   .action(asyncAction(async (key) => {

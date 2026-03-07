@@ -709,6 +709,35 @@ program
     }
   }));
 
+program
+  .command('extract-content')
+  .description('Extract main content from the page in LLM-friendly format (metadata + Markdown).')
+  .option('-s, --selector <selector>', 'CSS selector, XPath expression, or numeric ID from view-tree to extract content from specific elements')
+  .action(asyncAction(async (opts) => {
+    const body = {};
+    if (opts.selector) body.selector = opts.selector;
+    const response = await sendToInstance('/extract-content', 'POST', body);
+
+    console.log(`Title: ${response.title}`);
+    console.log(`URL: ${response.url}`);
+    if (response.description) {
+      console.log(`Description: ${response.description}`);
+    }
+    if (response.byline) {
+      console.log(`Byline: ${response.byline}`);
+    }
+    if (response.excerpt) {
+      console.log(`Excerpt: ${response.excerpt}`);
+    }
+    console.log(`Word count: ${response.wordCount}`);
+    console.log('---');
+    console.log(response.content);
+
+    if (response.selector) {
+      console.log('\n(using selector:', response.selector + ')');
+    }
+  }));
+
 // --- Navigation commands ---
 
 program

@@ -311,6 +311,15 @@ br extract-text
 br extract-text -s "article.content"
 ```
 
+Extract main content in LLM-friendly format (metadata + Markdown).
+
+```bash
+br extract-content
+br extract-content -s "article.content"
+```
+
+Outputs: title, URL, description, byline, excerpt, word count, and the main content as Markdown.
+
 ### HTTP API for Screenshots
 
 The daemon exposes HTTP endpoints for programmatic screenshot capture:

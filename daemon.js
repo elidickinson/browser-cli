@@ -4,6 +4,18 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { initAdblocker } = require('./utils');
+const TurndownService = require('turndown');
+const { Readability } = require('@mozilla/readability');
+const { JSDOM } = require('jsdom');
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 // Optional ad blocking (off by default)
 // Enable with: BR_ADBLOCK=true br start
@@ -803,6 +815,90 @@ Try using --selector to specify the search input explicitly.`);
 
     } catch (err) {
       res.status(500).send(`Error extracting text: ${err.message}`);
+    }
+  });
+
+  app.post('/extract-content', async (req, res) => {
+    try {
+      const { selector } = req.body;
+      const page = activePage;
+      if (!page) return res.status(400).send('No active page');
+
+      // Extract metadata from the browser
+      const metadata = await page.evaluate(() => ({
+        url: window.location.href,
+        title: document.title,
+        description: document.querySelector('meta[name="description"]')?.content || ''
+      }));
+
+      let article;
+      let resolvedSelector = null;
+
+      if (selector) {
+        // Resolve selector to handle view-tree IDs and XPath
+        const resolved = await resolveSelector(page, selector);
+        resolvedSelector = resolved.actualSelector;
+
+        // Get outer HTML directly from the resolved element handle
+        const elementHtml = await resolved.element.evaluate(el => el.outerHTML);
+
+        // Create a minimal document with just this element
+        const minimalHtml = `
+          <!DOCTYPE html>
+          <html>
+            <head><title>${escapeHtml(metadata.title)}</title></head>
+            <body>${elementHtml}</body>
+          </html>
+        `;
+
+        const doc = new JSDOM(minimalHtml, { url: metadata.url }).window.document;
+        article = new Readability(doc).parse();
+
+        if (!article) {
+          return res.status(404).json({ error: 'Could not extract content from the selected element' });
+        }
+      } else {
+        // Get page HTML (rendered DOM) - only needed for full page extraction
+        const html = await page.content();
+
+        // Parse entire page with Readability
+        const dom = new JSDOM(html, { url: metadata.url });
+        article = new Readability(dom.window.document).parse();
+
+        if (!article) {
+          return res.status(404).json({ error: 'Could not extract main content from this page' });
+        }
+      }
+
+      // Convert article HTML to Markdown
+      const turndown = new TurndownService({
+        headingStyle: 'atx',
+        codeBlockStyle: 'fenced'
+      });
+
+      const markdownContent = turndown.turndown(article.content);
+
+      // Build response
+      const response = {
+        title: article.title || metadata.title,
+        url: metadata.url,
+        description: metadata.description,
+        byline: article.byline || '',
+        excerpt: article.excerpt || '',
+        content: markdownContent,
+        wordCount: markdownContent.split(/\s+/).filter(w => w.length > 0).length
+      };
+
+      if (resolvedSelector) {
+        response.selector = resolvedSelector;
+      }
+
+      record('extract-content', resolvedSelector ? { selector: resolvedSelector } : {});
+      res.json(response);
+
+    } catch (err) {
+      console.error('Error extracting content:', err);
+      res.status(500).json({ error: `Error extracting content: ${err.message}` });
     }
   });
 

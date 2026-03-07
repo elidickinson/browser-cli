@@ -9,6 +9,14 @@ const os = require('os');
 const REGISTRY_DIR = path.join(os.homedir(), '.br');
 const REGISTRY_FILE = path.join(REGISTRY_DIR, 'instances.json');
 
+function readLogTail(logFile) {
+  try {
+    return fs.readFileSync(logFile, 'utf8').trimEnd() || null;
+  } catch {
+    return null;
+  }
+}
+
 class DaemonNotRunningError extends Error {
   constructor(message) {
     super(message);
@@ -179,10 +187,15 @@ async function startDaemon(name) {
   const args = [process.argv[1], '--name', name, 'start'];
   const { execFileSync } = require('child_process');
   // Unset BR_AUTOSTART to prevent recursion; BR_PARAMS flows through naturally
-  execFileSync(process.execPath, args, { stdio: 'pipe', env: { ...process.env, BR_AUTOSTART: '' } });
+  try {
+    execFileSync(process.execPath, args, { stdio: 'pipe', env: { ...process.env, BR_AUTOSTART: '' } });
+  } catch (err) {
+    const stderr = err.stderr ? err.stderr.toString().trim() : '';
+    throw new Error(`Daemon failed to start.${stderr ? '\n' + stderr : ''}`);
+  }
 
   const instance = getInstance(name);
-  if (!instance) throw new Error('Daemon failed to start.');
+  if (!instance) throw new Error('Daemon failed to start (not registered).');
   return instance.port;
 }
 
@@ -334,22 +347,36 @@ program
       });
 
     } else {
-      // Run in background - detached mode
+      // Run in background - detached mode, capture output to log file
+      const logFile = path.join(REGISTRY_DIR, `${name}.log`);
+      fs.mkdirSync(REGISTRY_DIR, { recursive: true });
+      const logFd = fs.openSync(logFile, 'w');
       const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {
         detached: true,
-        stdio: 'ignore',
+        stdio: ['ignore', logFd, logFd],
         env
       });
 
       child.unref();
+      fs.closeSync(logFd);
       registerInstance(name, port, child.pid);
 
       // Poll health endpoint to confirm daemon is ready
       const startTime = Date.now();
       const checkHealth = async () => {
-        if (Date.now() - startTime > 5000) {
+        // Check if daemon process is still alive
+        let alive = true;
+        try { process.kill(child.pid, 0); } catch { alive = false; }
+
+        if (!alive || Date.now() - startTime > 10000) {
           unregisterInstance(name);
-          console.error('Daemon failed to start in a timely manner.');
+          const log = readLogTail(logFile);
+          if (log) {
+            console.error('Daemon failed to start. Log output:');
+            console.error(log);
+          } else {
+            console.error('Daemon failed to start (no log output).');
+          }
           process.exit(EXIT_ERROR);
         }
 

@@ -97,7 +97,13 @@ const userDataDir = instanceName === 'anonymous'
     : null;
 
   if (remoteWs) {
-    browser = await chromium.connect(remoteWs);
+    try {
+      browser = await chromium.connect(remoteWs);
+    } catch (err) {
+      console.error(`Failed to connect to remote browser at ${remoteWs}`);
+      console.error(err.message);
+      process.exit(1);
+    }
     const contextOpts = { viewport };
     if (storageStatePath && fs.existsSync(storageStatePath)) {
       contextOpts.storageState = storageStatePath;
@@ -106,10 +112,16 @@ const userDataDir = instanceName === 'anonymous'
     context = await browser.newContext(contextOpts);
     console.log('Connected to remote browser:', remoteWs);
   } else {
-    context = await chromium.launchPersistentContext(userDataDir, {
-      headless: process.env.BR_HEADLESS === 'true',
-      viewport
-    });
+    try {
+      context = await chromium.launchPersistentContext(userDataDir, {
+        headless: process.env.BR_HEADLESS === 'true',
+        viewport
+      });
+    } catch (err) {
+      console.error('Failed to launch browser');
+      console.error(err.message);
+      process.exit(1);
+    }
     browser = context.browser();
   }
 

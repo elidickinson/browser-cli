@@ -6,6 +6,27 @@ const path = require('path');
 const http = require('http');
 const os = require('os');
 
+function writeOutputFile(label, content) {
+  const dir = path.join(os.tmpdir(), 'br_cli');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${label}-${Date.now()}.txt`);
+  fs.writeFileSync(file, content);
+  return file;
+}
+
+function printWithLimit(content, maxLines, filePath) {
+  console.log(`Full output: ${filePath}`);
+  if (maxLines > 0) {
+    const lines = content.split('\n');
+    console.log(lines.slice(0, maxLines).join('\n'));
+    if (lines.length > maxLines) {
+      console.error(`(truncated: showing ${maxLines} of ${lines.length} lines)`);
+    }
+  } else {
+    console.log(content);
+  }
+}
+
 const REGISTRY_DIR = path.join(os.homedir(), '.br');
 const REGISTRY_FILE = path.join(REGISTRY_DIR, 'instances.json');
 
@@ -625,7 +646,9 @@ program
   .description("Display a hierarchical tree of the page's accessibility and DOM nodes.")
   .option('--full', 'Show all nodes without smart omission')
   .option('--root <id>', 'Show only the subtree under the given view-tree node ID')
+  .option('--max-lines <n>', 'Max lines to print to stdout (0=unlimited)', '0')
   .action(async (opts) => {
+    const maxLines = parseInt(opts.maxLines, 10);
     const params = new URLSearchParams();
     if (opts.full) params.append('full', '1');
     if (opts.root) params.append('root', opts.root);
@@ -635,30 +658,36 @@ program
 
     // Handle the case where tree is still a string (daemon not restarted yet)
     if (typeof tree === 'string') {
-      console.log(tree);
+      const filePath = writeOutputFile('view-tree', tree);
+      printWithLimit(tree, maxLines, filePath);
       return;
     }
 
-    function displayNode(node, indent = 0) {
+    const lines = [];
+
+    function collectNode(node, indent = 0) {
       const parts = [`${' '.repeat(indent)}[${node.id}]`];
       if (node.role) parts.push(node.role);
       if (node.tag) parts.push(node.tag);
       if (node.name) parts.push(`: ${node.name}`);
-      console.log(parts.join(' '));
+      lines.push(parts.join(' '));
 
       if (node.options && node.options.length > 0) {
         const shown = node.options.map(o => `${o.value}="${o.label}"${o.selected ? '*' : ''}`).join(', ');
         const more = node.totalOptions > node.options.length ? ` (+${node.totalOptions - node.options.length} more)` : '';
-        console.log(`${' '.repeat(indent + 1)}options: ${shown}${more}`);
+        lines.push(`${' '.repeat(indent + 1)}options: ${shown}${more}`);
       }
 
       if (node.children && node.children.length > 0) {
-        node.children.forEach(child => displayNode(child, indent + 1));
+        node.children.forEach(child => collectNode(child, indent + 1));
       }
     }
 
     if (tree) {
-      displayNode(tree);
+      collectNode(tree);
+      const content = lines.join('\n');
+      const filePath = writeOutputFile('view-tree', content);
+      printWithLimit(content, maxLines, filePath);
       if (response.omittedCount > 0) {
         console.error(`(omitted ${response.omittedCount} nodes, use --full to show all)`);
       }
@@ -727,43 +756,45 @@ program
   .command('extract-text')
   .description('Extract visible text from the page or specific elements.')
   .option('-s, --selector <selector>', 'CSS selector, XPath expression, or numeric ID from view-tree to extract text from specific elements')
+  .option('--max-lines <n>', 'Max lines to print to stdout (0=unlimited)', '0')
   .action(asyncAction(async (opts) => {
+    const maxLines = parseInt(opts.maxLines, 10);
     const body = {};
     if (opts.selector) body.selector = opts.selector;
     const response = await sendToInstance('/extract-text', 'POST', body);
-    console.log(response.text);
+    let content = response.text;
     if (response.selector) {
-      console.log('(using selector:', response.selector + ')');
+      content += '\n(using selector: ' + response.selector + ')';
     }
+    const filePath = writeOutputFile('extract-text', content);
+    printWithLimit(content, maxLines, filePath);
   }));
 
 program
   .command('extract-content')
   .description('Extract main content from the page in LLM-friendly format (metadata + Markdown).')
   .option('-s, --selector <selector>', 'CSS selector, XPath expression, or numeric ID from view-tree to extract content from specific elements')
+  .option('--max-lines <n>', 'Max lines to print to stdout (0=unlimited)', '0')
   .action(asyncAction(async (opts) => {
+    const maxLines = parseInt(opts.maxLines, 10);
     const body = {};
     if (opts.selector) body.selector = opts.selector;
     const response = await sendToInstance('/extract-content', 'POST', body);
 
-    console.log(`Title: ${response.title}`);
-    console.log(`URL: ${response.url}`);
-    if (response.description) {
-      console.log(`Description: ${response.description}`);
-    }
-    if (response.byline) {
-      console.log(`Byline: ${response.byline}`);
-    }
-    if (response.excerpt) {
-      console.log(`Excerpt: ${response.excerpt}`);
-    }
-    console.log(`Word count: ${response.wordCount}`);
-    console.log('---');
-    console.log(response.content);
+    const parts = [];
+    parts.push(`Title: ${response.title}`);
+    parts.push(`URL: ${response.url}`);
+    if (response.description) parts.push(`Description: ${response.description}`);
+    if (response.byline) parts.push(`Byline: ${response.byline}`);
+    if (response.excerpt) parts.push(`Excerpt: ${response.excerpt}`);
+    parts.push(`Word count: ${response.wordCount}`);
+    parts.push('---');
+    parts.push(response.content);
+    if (response.selector) parts.push('\n(using selector: ' + response.selector + ')');
 
-    if (response.selector) {
-      console.log('\n(using selector:', response.selector + ')');
-    }
+    const content = parts.join('\n');
+    const filePath = writeOutputFile('extract-content', content);
+    printWithLimit(content, maxLines, filePath);
   }));
 
 // --- Navigation commands ---

@@ -12,7 +12,7 @@ const PORT = process.env.SHOT_PORT || 3031;
     adblocker = await initAdblocker();
   }
 
-  const browser = await chromium.launch({ headless: true });
+  const browser = await chromium.launch({ headless: process.env.BR_HEADLESS !== 'false' });
 
   const app = express();
   app.use(express.json());

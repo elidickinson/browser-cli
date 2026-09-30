@@ -3,6 +3,7 @@ async function detectChallengePage(page) {
     return await page.evaluate(() => {
       // Cloudflare
       if (document.title === 'Just a moment...' ||
+          document.title.includes('Attention Required') ||
           window._cf_chl_opt ||
           document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]') ||
           (document.querySelector('meta[http-equiv="refresh"]') && document.title.includes('Just a moment'))) {
@@ -15,6 +16,21 @@ async function detectChallengePage(page) {
           Array.from(document.querySelectorAll('script')).some(script =>
             script.textContent.includes('sgchallenge'))) {
         return 'siteground';
+      }
+
+      // Imperva / Incapsula and Sucuri bot walls
+      if (document.querySelector('script[src*="incapsula"]')) {
+        return 'imperva';
+      }
+      if (document.querySelector('script[src*="sucuri"]')) {
+        return 'sucuri';
+      }
+
+      // Generic interstitial copy. Real articles are long; challenge pages are short.
+      const text = document.body ? document.body.innerText : '';
+      if (text.length < 500 &&
+          /checking your browser|please stand by|verify you are (a )?human|attention required!/i.test(text)) {
+        return 'interstitial';
       }
 
       return false;
@@ -139,9 +155,18 @@ async function initAdblocker() {
   return blocker;
 }
 
+async function isBlankScreenshot(buffer) {
+  // sharp is an optional dependency, so require it only when analyzing a screenshot
+  const sharp = require('sharp');
+  const { entropy, channels } = await sharp(buffer).stats();
+  const maxStdev = Math.max(...channels.map(channel => channel.stdev));
+  return entropy < 0.5 && maxStdev < 5;
+}
+
 module.exports = {
   detectChallengePage,
   waitForChallengeBypass,
   dismissModals,
-  initAdblocker
+  initAdblocker,
+  isBlankScreenshot
 };

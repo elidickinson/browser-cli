@@ -13,6 +13,11 @@ const PORT = process.env.SHOT_PORT || 3031;
   }
 
   const browser = await chromium.launch({ headless: process.env.BR_HEADLESS !== 'false' });
+  const onBrowserDisconnected = () => {
+    console.error('Browser disconnected; exiting so the service manager can restart');
+    process.exit(1);
+  };
+  browser.on('disconnected', onBrowserDisconnected);
 
   const app = express();
   app.use(express.json());
@@ -194,18 +199,23 @@ const PORT = process.env.SHOT_PORT || 3031;
     }
   });
 
-  app.post('/shutdown', async (req, res) => {
-    res.send('Shutting down');
+  async function shutdown() {
+    browser.off('disconnected', onBrowserDisconnected);
     await browser.close();
     process.exit(0);
+  }
+
+  app.post('/shutdown', async (req, res) => {
+    res.send('Shutting down');
+    await shutdown();
   });
 
   app.listen(PORT, () => {
     console.log(`shot-server running on port ${PORT}`);
   });
 
-  process.on('SIGINT', async () => { await browser.close(); process.exit(0); });
-  process.on('SIGTERM', async () => { await browser.close(); process.exit(0); });
+  process.on('SIGINT', shutdown);
+  process.on('SIGTERM', shutdown);
 })().catch(err => {
   console.error('shot-server error:', err);
   process.exit(1);

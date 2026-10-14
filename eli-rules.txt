@@ -59,8 +59,12 @@ propublica.org###cta
 ##.hs-cta-embed__loaded
 ##.daily_digest_modal
 ##.js-donation-banner
+##.subscriber-popup-container
+##.popup--backdrop.open
+##.sqs-slide-container[data-slide-type="popup-overlay"]
 
 inthesetimes.com##.fixedalert
+
 
 ! from https://easylist.to/easylist/fanboy-annoyance.txt
 dailyevergreen.com,dailyexpose.uk,thewalrus.ca##.wppopups-whole

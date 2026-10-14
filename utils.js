@@ -63,7 +63,9 @@ async function dismissModals(page) {
     'button[data-testid="close-welcome-modal"]',
     'button.spu-close-popup',
     '#campaign_modal_wrapper #continue_to_site',
-    '.close-footer-btn'
+    '.close-footer-btn',
+    '.subscriber-dismiss',
+    'button[aria-label="Decline cookies"]'
   ].join(', ');
   const maxWaitTime = 2500;
   const startTime = Date.now();

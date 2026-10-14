@@ -24,13 +24,31 @@ async function detectChallengePage(page) {
   }
 }
 
-async function waitForChallengeBypass(page, maxWaitSeconds = 8) {
+// Clicks the Turnstile checkbox if the widget is showing; returns whether it clicked
+async function clickTurnstile(page) {
+  const frame = page.frames().find(f => f.url().includes('challenges.cloudflare.com'));
+  // The frame can detach mid-check when the challenge passes and the page navigates
+  const box = frame && await frame.frameElement().then(el => el.boundingBox()).catch(() => null);
+  if (!(box?.width > 100)) return false;
+  const jitter = n => (Math.random() * 2 - 1) * n;
+  await page.mouse.move(box.x + 150 + jitter(100), box.y + 120 + jitter(40), { steps: 8 });
+  // Checkbox sits at the left edge of the widget
+  await page.mouse.click(box.x + 28 + jitter(4), box.y + box.height / 2 + jitter(4), { delay: 50 + Math.random() * 100 });
+  return true;
+}
+
+async function waitForChallengeBypass(page, maxWaitSeconds = 20) {
   const startTime = Date.now();
+  let lastClick = 0;
 
   while (Date.now() - startTime < maxWaitSeconds * 1000) {
     const challenge = await detectChallengePage(page);
     if (!challenge) {
       return true;
+    }
+    // The first click often only resets the widget, so retry every few seconds
+    if (challenge === 'cloudflare' && Date.now() - lastClick > 3000 && await clickTurnstile(page)) {
+      lastClick = Date.now();
     }
     await page.waitForTimeout(100);
   }

@@ -58,7 +58,11 @@ const PORT = process.env.SHOT_PORT || 3031;
       await dismissModals(page);
 
       const isFullPage = !height;
-      if (isFullPage) await loadLazyContent(page);
+      if (isFullPage) {
+        // Catch late popups; loadLazyContent's waits give any close animation time to finish
+        await page.keyboard.press('Escape');
+        await loadLazyContent(page);
+      }
       const screenshotBuffer = await page.screenshot({ fullPage: isFullPage, type: 'png' });
 
       const format = output_format || 'png';
@@ -134,6 +138,8 @@ const PORT = process.env.SHOT_PORT || 3031;
       const format = output_format || 'png';
       const quality = output_quality ? parseInt(output_quality, 10) : 80;
 
+      // Catch late popups; loadLazyContent's waits give any close animation time to finish
+      await page.keyboard.press('Escape');
       await loadLazyContent(page);
       const screenshotBuffer = await page.screenshot({ fullPage: true, type: 'png' });
       const metadata = await sharp(screenshotBuffer).metadata();

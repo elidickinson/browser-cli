@@ -63,6 +63,7 @@ propublica.org###cta
 ##.popup--backdrop.open
 ##.sqs-slide-container[data-slide-type="popup-overlay"]
 ##.klaro .cookie-modal
+##.ctct-popup-form .ctct-popup-is-visible
 
 inthesetimes.com##.fixedalert
 
@@ -93,13 +94,19 @@ dailyevergreen.com,dailyexpose.uk,thewalrus.ca##.wppopups-whole
 ! Block Mailchimp site-connected loader (kills "Amped" email-capture popups)
 ||chimpstatic.com/mcjs-connected/
 
+! Block fancybox lightbox library (common popup/overlay library)
+/jquery.fancybox*.js
+
+! Hustle UI for WP
+/hustle-ui.min.js
+
 ! Block mailerlite
-||assets.mailerlite.com/jsonp
+||assets.mailerlite.com/jsonp/
 
 
 
 ! === COOKIE SETTING RULES ===
-! Set Substack intro popup cookie to hide the popup
+! Set Substack intro popup cookie to hide the popup. Not sure this works with Ghostery engine
 discourseblog.com,dropsitenews.com,erininthemorning.com,*.substack.com,zeteo.com##+js(set-cookie, intro_popup_last_hidden_at, 2029-01-01T01:01:01.000Z)
 
 ! NOTE: scriptlet rules must name a hostname; "##+js(...)" with no domain (or "*##")

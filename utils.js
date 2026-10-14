@@ -65,6 +65,8 @@ async function dismissModals(page) {
     '#campaign_modal_wrapper #continue_to_site',
     '.close-footer-btn',
     '.subscriber-dismiss',
+    '.fancybox-opened a.fancybox-close',
+    '.mfp-wrap button.mfp-close',
     'button[aria-label="Decline cookies"]'
   ].join(', ');
   const maxWaitTime = 2500;

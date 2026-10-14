@@ -139,9 +139,29 @@ async function initAdblocker() {
   return blocker;
 }
 
+// Briefly make the viewport taller than the page so every lazy loader treats its content as
+// visible, then restore it so vh units and resize handlers settle before a fullPage capture.
+// See eli/tall-screenshots-lazy-load.md
+async function loadLazyContent(page) {
+  const viewport = page.viewportSize();
+  const pageHeight = await page.evaluate(() => document.documentElement.scrollHeight);
+  await page.setViewportSize({ width: viewport.width, height: Math.max(pageHeight, 10000) });
+  await page.waitForTimeout(500);
+
+  const start = Date.now();
+  while (Date.now() - start < 5000) {
+    if (await page.evaluate(() => [...document.images].every(img => img.complete))) break;
+    await page.waitForTimeout(100);
+  }
+
+  await page.setViewportSize(viewport);
+  await page.waitForTimeout(500);
+}
+
 module.exports = {
   detectChallengePage,
   waitForChallengeBypass,
   dismissModals,
-  initAdblocker
+  initAdblocker,
+  loadLazyContent
 };

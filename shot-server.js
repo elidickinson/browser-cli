@@ -2,7 +2,7 @@ const express = require('express');
 const { chromium } = require('patchright');
 const sharp = require('sharp');
 const path = require('path');
-const { waitForChallengeBypass, dismissModals, initAdblocker } = require('./utils');
+const { waitForChallengeBypass, dismissModals, initAdblocker, loadLazyContent } = require('./utils');
 
 const PORT = process.env.SHOT_PORT || 3031;
 
@@ -58,6 +58,7 @@ const PORT = process.env.SHOT_PORT || 3031;
       await dismissModals(page);
 
       const isFullPage = !height;
+      if (isFullPage) await loadLazyContent(page);
       const screenshotBuffer = await page.screenshot({ fullPage: isFullPage, type: 'png' });
 
       const format = output_format || 'png';
@@ -113,9 +114,7 @@ const PORT = process.env.SHOT_PORT || 3031;
       page = await context.newPage();
       if (adblocker) await adblocker.enableBlockingInPage(page);
 
-      const maxWidth = width ? parseInt(width, 10) : 1280;
-      const maxPixelHeight = outputs.reduce((max, o) => Math.max(max, parseInt(o.height) || 0), 0) || null;
-      await page.setViewportSize({ width: maxWidth, height: maxPixelHeight || 720 });
+      await page.setViewportSize({ width: width ? parseInt(width, 10) : 1280, height: 720 });
 
       await page.goto(processedUrl, { timeout: 20000 });
       await waitForChallengeBypass(page);
@@ -135,8 +134,8 @@ const PORT = process.env.SHOT_PORT || 3031;
       const format = output_format || 'png';
       const quality = output_quality ? parseInt(output_quality, 10) : 80;
 
-      const fullPage = !maxPixelHeight;
-      const screenshotBuffer = await page.screenshot({ fullPage, type: 'png' });
+      await loadLazyContent(page);
+      const screenshotBuffer = await page.screenshot({ fullPage: true, type: 'png' });
       const metadata = await sharp(screenshotBuffer).metadata();
 
       const images = await Promise.all(outputs.map(async (output) => {

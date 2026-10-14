@@ -62,6 +62,7 @@ propublica.org###cta
 ##.subscriber-popup-container
 ##.popup--backdrop.open
 ##.sqs-slide-container[data-slide-type="popup-overlay"]
+##.klaro .cookie-modal
 
 inthesetimes.com##.fixedalert
 
@@ -89,8 +90,17 @@ dailyevergreen.com,dailyexpose.uk,thewalrus.ca##.wppopups-whole
 ! Block FundraiseUp lightbox
 ||static.fundraiseup.com/*.lightbox.js
 
+! Block Mailchimp site-connected loader (kills "Amped" email-capture popups)
+||chimpstatic.com/mcjs-connected/
+
+! Block mailerlite
+||assets.mailerlite.com/jsonp
+
 
 
 ! === COOKIE SETTING RULES ===
 ! Set Substack intro popup cookie to hide the popup
 discourseblog.com,dropsitenews.com,erininthemorning.com,*.substack.com,zeteo.com##+js(set-cookie, intro_popup_last_hidden_at, 2029-01-01T01:01:01.000Z)
+
+! NOTE: scriptlet rules must name a hostname; "##+js(...)" with no domain (or "*##")
+! is dropped by @ghostery/adblocker, so there is no global form of the above rule.

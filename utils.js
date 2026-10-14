@@ -71,13 +71,14 @@ async function dismissModals(page) {
   const startTime = Date.now();
 
   while (Date.now() - startTime < maxWaitTime) {
-    const closeButton = await page.$(selectors);
-    if (!closeButton) {
+    if (!await page.$(selectors)) {
       break;
     }
 
-    if (await closeButton.isVisible().catch(() => false)) {
-      await closeButton.click().catch(() => {});
+    // Sites often keep hidden modals in the DOM, so skip to the first visible match
+    const closeButton = page.locator(selectors).filter({ visible: true }).first();
+    if (await closeButton.count()) {
+      await closeButton.click({ timeout: 1000 }).catch(() => {});
     }
 
     await page.waitForTimeout(500);

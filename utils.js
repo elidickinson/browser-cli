@@ -145,6 +145,15 @@ async function initAdblocker() {
 // visible, then restore it so vh units and resize handlers settle before a fullPage capture.
 // See eli/tall-screenshots-lazy-load.md
 async function loadLazyContent(page) {
+  // Native lazy loading and data-src style JS loaders don't need the resize, and full-screen vh
+  // sections can push their images below even a 10000px viewport
+  await page.evaluate(() => {
+    document.querySelectorAll('[loading="lazy"]').forEach(el => { el.loading = 'eager'; });
+    document.querySelectorAll('img[data-src]:not([data-src=""])').forEach(img => { img.src = img.dataset.src; });
+    document.querySelectorAll('img[data-srcset]:not([data-srcset=""]), source[data-srcset]:not([data-srcset=""])')
+      .forEach(el => { el.srcset = el.dataset.srcset; });
+  });
+
   const viewport = page.viewportSize();
   const pageHeight = await page.evaluate(() => document.documentElement.scrollHeight);
   await page.setViewportSize({ width: viewport.width, height: Math.max(pageHeight, 10000) });

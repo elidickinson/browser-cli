@@ -49,6 +49,8 @@ propublica.org###cta
 ###ocn-cookie-wrap
 ##.popup-wrapper---brix
 ##.popup-wrap.popup-newsletter
+###.popup[role="dialog"]
+###.is-open[role="dialog"]
 ! https://www.charlottenewsvt.org/ anti adblock
 ###ROuPvtIdXyOZro
 ###xdBWbPneRFmtMom
@@ -64,6 +66,8 @@ propublica.org###cta
 ##.sqs-slide-container[data-slide-type="popup-overlay"]
 ##.klaro .cookie-modal
 ##.ctct-popup-form .ctct-popup-is-visible
+##.mailpoet_form_popup
+##.mailpoet_form_popup_overlay
 
 inthesetimes.com##.fixedalert
 
@@ -108,6 +112,12 @@ dailyevergreen.com,dailyexpose.uk,thewalrus.ca##.wppopups-whole
 ! === COOKIE SETTING RULES ===
 ! Set Substack intro popup cookie to hide the popup. Not sure this works with Ghostery engine
 discourseblog.com,dropsitenews.com,erininthemorning.com,*.substack.com,zeteo.com##+js(set-cookie, intro_popup_last_hidden_at, 2029-01-01T01:01:01.000Z)
+
+! beehiiv-hosted publications (lni.media etc.) show their cookie banner only
+! while the beehiiv_honey cookie is absent; setting any value acts like the
+! site's own "Decline" click and keeps the banner from ever rendering.
+! beehiiv pubs live on custom domains, so add more hostnames as encountered.
+lni.media##+js(set-cookie, beehiiv_honey, 1)
 
 ! NOTE: scriptlet rules must name a hostname; "##+js(...)" with no domain (or "*##")
 ! is dropped by @ghostery/adblocker, so there is no global form of the above rule.

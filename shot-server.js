@@ -2,7 +2,9 @@ const express = require('express');
 const { chromium } = require('patchright');
 const sharp = require('sharp');
 const path = require('path');
-const { waitForChallengeBypass, dismissModals, initAdblocker, loadLazyContent } = require('./utils');
+const {
+  waitForChallengeBypass, dismissModals, initAdblocker, loadLazyContent, navigateForScreenshot
+} = require('./utils');
 
 const PORT = process.env.SHOT_PORT || 3031;
 
@@ -47,7 +49,7 @@ const PORT = process.env.SHOT_PORT || 3031;
         await page.setViewportSize({ width: viewportWidth, height: viewportHeight });
       }
 
-      await page.goto(processedUrl, { timeout: 20000 });
+      await navigateForScreenshot(page, processedUrl);
       await waitForChallengeBypass(page);
 
       await page.addStyleTag({
@@ -125,7 +127,7 @@ const PORT = process.env.SHOT_PORT || 3031;
 
       await page.setViewportSize({ width: width ? parseInt(width, 10) : 1280, height: 720 });
 
-      await page.goto(processedUrl, { timeout: 20000 });
+      await navigateForScreenshot(page, processedUrl);
       await waitForChallengeBypass(page);
 
       await page.addStyleTag({

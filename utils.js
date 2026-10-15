@@ -1,3 +1,7 @@
+async function navigateForScreenshot(page, url) {
+  return page.goto(url, { timeout: 20000, waitUntil: 'domcontentloaded' });
+}
+
 async function detectChallengePage(page) {
   try {
     return await page.evaluate(() => {
@@ -191,6 +195,7 @@ async function loadLazyContent(page) {
 }
 
 module.exports = {
+  navigateForScreenshot,
   detectChallengePage,
   waitForChallengeBypass,
   dismissModals,

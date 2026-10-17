@@ -91,6 +91,49 @@ test('web UI downloads MHTML archives and keeps screenshot modes working', async
     await asIsDownload.saveAs(asIsPath);
     assert.match(fs.readFileSync(asIsPath, 'utf8'), /modal presence marker/);
 
+    const captureButton = page.getByRole('button', { name: 'Capture MHTML Archive' });
+    const newCapture = page.locator('#result-container-mhtml').getByRole('button', { name: 'New Capture' });
+    const injectedError = '<img src="/missing" onerror="document.body.dataset.injected=1">';
+    await page.route('**/mhtml', route => route.fulfill({
+      status: 500, contentType: 'application/json', body: JSON.stringify({ error: injectedError })
+    }));
+    await captureButton.click();
+    await page.locator('.error').waitFor();
+    assert.match(await page.locator('.error').innerText(), /<img/);
+    assert.equal(await page.locator('.error img').count(), 0);
+    assert.equal(await page.locator('body').getAttribute('data-injected'), null);
+
+    await page.unroute('**/mhtml');
+    await page.route('**/mhtml', route => route.fulfill({ status: 200, body: 'missing attachment header' }));
+    await captureButton.click();
+    await page.getByText('Server did not provide an MHTML download filename', { exact: true }).waitFor();
+    const [retainedDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Download MHTML' }).click()
+    ]);
+    const retainedPath = path.join(dir, 'retained.mhtml');
+    await retainedDownload.saveAs(retainedPath);
+    assert.equal(fs.readFileSync(retainedPath, 'utf8'), fs.readFileSync(asIsPath, 'utf8'));
+
+    await page.unroute('**/mhtml');
+    let release;
+    const pending = new Promise(resolve => { release = resolve; });
+    await page.route('**/mhtml', async route => {
+      await pending;
+      await route.fulfill({ status: 500, contentType: 'application/json', body: '{"error":"Capture failed"}' });
+    });
+    const request = page.waitForRequest(req => req.url().endsWith('/mhtml'));
+    await captureButton.click();
+    await request;
+    assert.equal(await newCapture.isDisabled(), true);
+    assert.equal(await page.getByRole('button', { name: 'Single', exact: true }).isDisabled(), true);
+    release();
+    await page.getByText('Capture failed', { exact: true }).waitFor();
+    assert.equal(await newCapture.isEnabled(), true);
+    await newCapture.click();
+    assert.equal(await page.locator('#result-container-mhtml').isVisible(), false);
+    await page.unroute('**/mhtml');
+
     await page.getByRole('button', { name: 'Single', exact: true }).click();
     await page.locator('#url').fill(url);
     await page.locator('#height').fill('240');

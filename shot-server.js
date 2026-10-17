@@ -60,7 +60,7 @@ const PORT = process.env.SHOT_PORT || 3031;
         `
       });
 
-      const additionalWait = waitTime ? parseInt(waitTime, 10) : 1000;
+      const additionalWait = waitTime == null ? 1000 : parseInt(waitTime, 10);
       await page.waitForTimeout(additionalWait);
       await dismissModals(page);
 
@@ -129,7 +129,7 @@ const PORT = process.env.SHOT_PORT || 3031;
       if (!skipPreparation && !await waitForChallengeBypass(page)) {
         throw new Error('Challenge page did not clear; MHTML was not captured.');
       }
-      await page.waitForTimeout(waitTime ? parseInt(waitTime, 10) : 1000);
+      await page.waitForTimeout(waitTime == null ? 1000 : parseInt(waitTime, 10));
       if (!skipPreparation) {
         await dismissModals(page);
         await loadLazyContent(page);
@@ -180,7 +180,7 @@ const PORT = process.env.SHOT_PORT || 3031;
         `
       });
 
-      const additionalWait = waitTime ? parseInt(waitTime, 10) : 1000;
+      const additionalWait = waitTime == null ? 1000 : parseInt(waitTime, 10);
       await page.waitForTimeout(additionalWait);
       await dismissModals(page);
 

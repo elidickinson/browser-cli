@@ -72,7 +72,12 @@ function showError(message) {
     document.querySelector('.error')?.remove();
     const err = document.createElement('div');
     err.className = 'error';
-    err.innerHTML = `<div class="error-title">Error</div><div>${message}</div>`;
+    const title = document.createElement('div');
+    title.className = 'error-title';
+    title.textContent = 'Error';
+    const detail = document.createElement('div');
+    detail.textContent = message;
+    err.append(title, detail);
     document.querySelector('.form-container').prepend(err);
 }
 
@@ -83,7 +88,7 @@ async function captureScreenshot(e) {
 
     isCapturing = true;
     btn.disabled = true;
-    document.querySelectorAll('.mode-btn').forEach(modeBtn => { modeBtn.disabled = true; });
+    document.querySelectorAll('.mode-btn, .result-actions button').forEach(button => { button.disabled = true; });
     btn.innerHTML = '<span class="spinner"></span>Capturing...';
     document.querySelector('.error')?.remove();
 
@@ -99,7 +104,7 @@ async function captureScreenshot(e) {
         showError(error.message);
     } finally {
         isCapturing = false;
-        document.querySelectorAll('.mode-btn').forEach(modeBtn => { modeBtn.disabled = false; });
+        document.querySelectorAll('.mode-btn, .result-actions button').forEach(button => { button.disabled = false; });
         btn.disabled = false;
         btn.textContent = currentMode === 'multi' ? '📸 Capture Multiple Screenshots'
             : currentMode === 'mhtml' ? '🗃️ Capture MHTML Archive' : '📸 Capture Screenshot';
@@ -255,9 +260,12 @@ async function captureMhtmlArchive(data) {
         throw new Error(errorData.error || 'MHTML capture failed');
     }
 
+    const filename = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1];
+    if (!filename) throw new Error('Server did not provide an MHTML download filename');
+    const blob = await res.blob();
     clearResultUrls();
-    mhtmlFilename = res.headers.get('Content-Disposition').match(/filename="([^"]+)"/)[1];
-    mhtmlObjectUrl = URL.createObjectURL(await res.blob());
+    mhtmlFilename = filename;
+    mhtmlObjectUrl = URL.createObjectURL(blob);
     showResult('result-container-mhtml');
     scrollToResult();
 }
@@ -287,6 +295,7 @@ function showResult(id) {
 }
 
 function resetForm() {
+    if (isCapturing) return;
     document.getElementById('screenshot-form').reset();
     showResult(null);
     document.getElementById('url').focus();

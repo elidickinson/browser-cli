@@ -68,6 +68,13 @@ GET /info
 
 Returns browser version, page count, and other session information.
 
+### Export current page as MHTML
+```
+GET /mhtml?path=/tmp/page.mhtml&asIs=true
+```
+
+`path` and `asIs` are optional. By default, capture waits for challenge bypass (and fails if it does not clear), dismisses modals, and triggers lazy-loaded content. Set `asIs=true` to capture the current page without preparation. Returns the saved file path. In desktop sessions without an emulated viewport, preparation updates lazy-loading attributes but does not expand the viewport to trigger below-the-fold JavaScript loaders.
+
 ### Close session
 ```
 POST /shutdown
@@ -83,6 +90,8 @@ Gracefully shuts down the browser daemon.
 - The daemon supports tab management through dedicated endpoints
 
 ## Screenshot Endpoints
+
+Do not expose this server to untrusted clients. It can fetch internal-network URLs, and MHTML exports include page content and embedded resources.
 
 ### Capture single screenshot
 ```
@@ -100,6 +109,22 @@ Content-Type: application/json
 ```
 
 Returns the screenshot as an image buffer with appropriate Content-Type header.
+
+### Export a page as MHTML
+```
+POST /mhtml
+Content-Type: application/json
+
+{
+  "url": "https://example.com",
+  "width": 1920,
+  "height": 1080,
+  "waitTime": 1000,
+  "asIs": false
+}
+```
+
+Returns the MHTML archive bytes with `Content-Type: multipart/related` and an attachment filename. `width`, `height`, `waitTime`, and `asIs` are optional. By default, capture waits for challenge bypass (and fails if it does not clear), dismisses modals, and triggers lazy-loaded content. Set `asIs: true` to skip that preparation while still navigating to the URL.
 
 ### Capture multiple screenshots
 ```

@@ -850,6 +850,20 @@ program
     console.log('PDF saved to:', file);
   }));
 
+// --- MHTML export ---
+
+program
+  .command('mhtml')
+  .description('Save the current page as a self-contained MHTML archive.')
+  .option('-o, --output <path>', 'Custom file path for the MHTML archive')
+  .option('--as-is', 'Capture the current page without preparing it')
+  .action(asyncAction(async (opts) => {
+    const params = new URLSearchParams({ asIs: opts.asIs || false });
+    if (opts.output) params.append('path', opts.output);
+    const file = await sendToInstance(`/mhtml?${params}`);
+    console.log('MHTML saved to:', file);
+  }));
+
 // --- Download command ---
 
 program

@@ -9,6 +9,7 @@
 - Named instances (`--name`) for running multiple browser daemons concurrently
 - JavaScript execution (`br eval`) for running custom scripts on web pages
 - Enhanced screenshot options with custom paths and full-page capture
+- MHTML web archive export with embedded page resources
 - Ad blocking with configurable filter levels and custom blocklists
 - Browser console log capture (`br console`) for debugging and error tracking
 - Text extraction (`br extract-text`) with element-specific targeting
@@ -210,6 +211,24 @@ br screenshot --output /tmp/screen.png
 ```
 
 Screenshots are saved with the format `shot-{domain}-{timestamp}.png` by default, or to a custom path if specified with `-o/--output`.
+
+### Save an MHTML archive
+
+```bash
+br mhtml
+br mhtml -o page.mhtml
+br mhtml --as-is -o page.mhtml
+```
+
+MHTML archives embed page resources. Capture waits for challenge bypass, dismisses modals, and triggers lazy-loaded content by default. Use `--as-is` to capture the current page without preparation. The default output is saved under `/tmp/br_cli`. In desktop sessions without an emulated viewport, preparation updates lazy-loading attributes but does not expand the viewport to trigger below-the-fold JavaScript loaders.
+
+The screenshot server also provides a direct archive response:
+
+```bash
+curl -X POST http://localhost:3031/mhtml \
+  -H 'Content-Type: application/json' \
+  -d '{"url":"https://example.com","asIs":false}' -o page.mhtml
+```
 
 ### View accessibility and DOM tree
 

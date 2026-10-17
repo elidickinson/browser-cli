@@ -3,7 +3,7 @@ const { chromium } = require('patchright');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { initAdblocker } = require('./utils');
+const { initAdblocker, waitForChallengeBypass, dismissModals, loadLazyContent, captureMhtml } = require('./utils');
 
 // Optional ad blocking (off by default)
 // Enable with: BR_ADBLOCK=true br start
@@ -1010,6 +1010,39 @@ Try using --selector to specify the search input explicitly.`);
       });
       fs.writeFileSync(file, pdfBuffer);
       record('pdf', { path: file });
+      res.send(file);
+    } catch (err) {
+      res.status(500).send(err.message);
+    }
+  });
+
+  // --- MHTML export ---
+
+  app.get('/mhtml', async (req, res) => {
+    try {
+      const dir = path.join(os.tmpdir(), 'br_cli');
+      fs.mkdirSync(dir, { recursive: true });
+
+      let file;
+      if (req.query.path) {
+        file = path.resolve(req.query.path);
+      } else {
+        const url = new URL(activePage.url());
+        const domain = url.hostname.replace(/[^a-zA-Z0-9.-]/g, '');
+        file = path.join(dir, `page-${domain}-${Date.now()}.mhtml`);
+      }
+
+      const asIs = req.query.asIs === 'true';
+      if (!asIs) {
+        if (!await waitForChallengeBypass(activePage)) {
+          throw new Error('Challenge page did not clear; MHTML was not captured.');
+        }
+        await dismissModals(activePage);
+        await loadLazyContent(activePage);
+      }
+
+      fs.writeFileSync(file, await captureMhtml(activePage), 'utf8');
+      record('mhtml', { path: file, asIs });
       res.send(file);
     } catch (err) {
       res.status(500).send(err.message);

@@ -3,7 +3,7 @@ const { chromium } = require('patchright');
 const sharp = require('sharp');
 const path = require('path');
 const {
-  waitForChallengeBypass, dismissModals, initAdblocker, loadLazyContent, navigateForScreenshot
+  waitForChallengeBypass, dismissModals, initAdblocker, loadLazyContent, navigateForScreenshot, captureMhtml
 } = require('./utils');
 
 const PORT = process.env.SHOT_PORT || 3031;
@@ -103,6 +103,48 @@ const PORT = process.env.SHOT_PORT || 3031;
         await page.close();
         await ctx.close();
       }
+    }
+  });
+
+  app.post('/mhtml', async (req, res) => {
+    let context;
+    try {
+      const { url, width, height, waitTime, asIs } = req.body;
+      if (!url) return res.status(400).json({ error: 'missing url parameter' });
+      const skipPreparation = asIs === true;
+
+      const processedUrl = url.startsWith('http://') || url.startsWith('https://') ? url : `https://${url}`;
+      context = await browser.newContext();
+      const page = await context.newPage();
+      if (adblocker) await adblocker.enableBlockingInPage(page);
+
+      if (width || height) {
+        await page.setViewportSize({
+          width: width ? parseInt(width, 10) : 1280,
+          height: height ? parseInt(height, 10) : 720
+        });
+      }
+      await navigateForScreenshot(page, processedUrl);
+
+      if (!skipPreparation && !await waitForChallengeBypass(page)) {
+        throw new Error('Challenge page did not clear; MHTML was not captured.');
+      }
+      await page.waitForTimeout(waitTime ? parseInt(waitTime, 10) : 1000);
+      if (!skipPreparation) {
+        await dismissModals(page);
+        await loadLazyContent(page);
+      }
+
+      const data = Buffer.from(await captureMhtml(page), 'utf8');
+      const hostname = new URL(processedUrl).hostname.replace(/[^a-zA-Z0-9.-]/g, '') || 'page';
+      res.setHeader('Content-Type', 'multipart/related; type="text/html"');
+      res.setHeader('Content-Disposition', `attachment; filename="page-${hostname}-${Date.now()}.mhtml"`);
+      res.setHeader('Content-Length', data.length);
+      res.send(data);
+    } catch (err) {
+      res.status(500).json({ error: `Error capturing MHTML: ${err.message}` });
+    } finally {
+      await context?.close();
     }
   });
 

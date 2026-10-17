@@ -2,6 +2,16 @@ async function navigateForScreenshot(page, url) {
   return page.goto(url, { timeout: 20000, waitUntil: 'domcontentloaded' });
 }
 
+async function captureMhtml(page) {
+  const session = await page.context().newCDPSession(page);
+  try {
+    const { data } = await session.send('Page.captureSnapshot', { format: 'mhtml' });
+    return data;
+  } finally {
+    await session.detach();
+  }
+}
+
 async function detectChallengePage(page) {
   try {
     return await page.evaluate(() => {
@@ -179,23 +189,31 @@ async function loadLazyContent(page) {
       .forEach(el => { el.srcset = el.dataset.srcset; });
   });
 
+  // Headed persistent contexts may have no emulated viewport; trigger lazy attrs without resizing them.
   const viewport = page.viewportSize();
-  const pageHeight = await page.evaluate(() => document.documentElement.scrollHeight);
-  await page.setViewportSize({ width: viewport.width, height: Math.max(pageHeight, 10000) });
-  await page.waitForTimeout(500);
+  try {
+    if (viewport) {
+      const pageHeight = await page.evaluate(() => document.documentElement.scrollHeight);
+      await page.setViewportSize({ width: viewport.width, height: Math.max(pageHeight, 10000) });
+      await page.waitForTimeout(500);
+    }
 
-  const start = Date.now();
-  while (Date.now() - start < 5000) {
-    if (await page.evaluate(() => [...document.images].every(img => img.complete))) break;
-    await page.waitForTimeout(100);
+    const start = Date.now();
+    while (Date.now() - start < 5000) {
+      if (await page.evaluate(() => [...document.images].every(img => img.complete))) break;
+      await page.waitForTimeout(100);
+    }
+  } finally {
+    if (viewport) {
+      await page.setViewportSize(viewport);
+      await page.waitForTimeout(500);
+    }
   }
-
-  await page.setViewportSize(viewport);
-  await page.waitForTimeout(500);
 }
 
 module.exports = {
   navigateForScreenshot,
+  captureMhtml,
   detectChallengePage,
   waitForChallengeBypass,
   dismissModals,

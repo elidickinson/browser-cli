@@ -1,6 +1,10 @@
 let screenshotBlob = null;
+let screenshotPreviewUrl = null;
+let mhtmlObjectUrl = null;
+let mhtmlFilename = null;
 let currentFilename = 'screenshot.png';
 let currentMode = 'single';
+let isCapturing = false;
 let multiImages = [];
 
 function toggleAdvanced() {
@@ -8,6 +12,7 @@ function toggleAdvanced() {
 }
 
 function setMode(mode) {
+    if (isCapturing) return;
     currentMode = mode;
     document.querySelectorAll('.mode-btn').forEach(btn => {
         btn.classList.toggle('active', btn.dataset.mode === mode);
@@ -17,7 +22,11 @@ function setMode(mode) {
     const submitBtn = document.getElementById('submit-btn');
     const heightGroup = document.getElementById('height').closest('.form-group');
     const outputWidthGroup = document.getElementById('output_width').closest('.form-group');
+    const screenshotOptions = document.getElementById('screenshot-options');
+    const mhtmlOptions = document.getElementById('mhtml-options');
 
+    screenshotOptions.classList.toggle('hidden', mode === 'mhtml');
+    mhtmlOptions.classList.toggle('hidden', mode !== 'mhtml');
     if (mode === 'multi') {
         multiSection.classList.remove('hidden');
         heightGroup.classList.add('hidden');
@@ -32,7 +41,7 @@ function setMode(mode) {
         multiSection.classList.add('hidden');
         heightGroup.classList.remove('hidden');
         outputWidthGroup.classList.remove('hidden');
-        submitBtn.textContent = '📸 Capture Screenshot';
+        submitBtn.textContent = mode === 'mhtml' ? '🗃️ Capture MHTML Archive' : '📸 Capture Screenshot';
     }
     resetForm();
 }
@@ -72,21 +81,28 @@ async function captureScreenshot(e) {
     const btn = document.getElementById('submit-btn');
     const data = new FormData(e.target);
 
+    isCapturing = true;
     btn.disabled = true;
+    document.querySelectorAll('.mode-btn').forEach(modeBtn => { modeBtn.disabled = true; });
     btn.innerHTML = '<span class="spinner"></span>Capturing...';
     document.querySelector('.error')?.remove();
 
     try {
         if (currentMode === 'multi') {
             await captureMultiScreenshot(data);
+        } else if (currentMode === 'mhtml') {
+            await captureMhtmlArchive(data);
         } else {
             await captureSingleScreenshot(data);
         }
     } catch (error) {
         showError(error.message);
     } finally {
+        isCapturing = false;
+        document.querySelectorAll('.mode-btn').forEach(modeBtn => { modeBtn.disabled = false; });
         btn.disabled = false;
-        btn.textContent = currentMode === 'multi' ? '📸 Capture Multiple Screenshots' : '📸 Capture Screenshot';
+        btn.textContent = currentMode === 'multi' ? '📸 Capture Multiple Screenshots'
+            : currentMode === 'mhtml' ? '🗃️ Capture MHTML Archive' : '📸 Capture Screenshot';
     }
 }
 
@@ -114,11 +130,12 @@ async function captureSingleScreenshot(data) {
     const contentType = res.headers.get('Content-Type');
     const ext = contentType === 'image/webp' ? 'webp' : contentType === 'image/jpeg' ? 'jpg' : 'png';
 
+    clearResultUrls();
     currentFilename = `screenshot-${Date.now()}.${ext}`;
     screenshotBlob = await res.blob();
-    document.getElementById('screenshot-img').src = URL.createObjectURL(screenshotBlob);
-    document.getElementById('result-container').classList.add('visible');
-    document.getElementById('result-container-multi').classList.remove('visible');
+    screenshotPreviewUrl = URL.createObjectURL(screenshotBlob);
+    document.getElementById('screenshot-img').src = screenshotPreviewUrl;
+    showResult('result-container');
     scrollToResult();
 }
 
@@ -164,6 +181,7 @@ async function captureMultiScreenshot(data) {
     }
 
     const result = await res.json();
+    clearResultUrls();
     displayMultiResults(result.images);
 }
 
@@ -186,8 +204,7 @@ function displayMultiResults(images) {
         `;
     }).join('');
 
-    document.getElementById('result-container-multi').classList.add('visible');
-    document.getElementById('result-container').classList.remove('visible');
+    showResult('result-container-multi');
     scrollToResult();
 }
 
@@ -221,19 +238,66 @@ function downloadScreenshot() {
     URL.revokeObjectURL(a.href);
 }
 
+async function captureMhtmlArchive(data) {
+    const body = { url: data.get('url'), asIs: data.get('asIs') === 'on' };
+    ['width', 'height', 'waitTime'].forEach(field => {
+        const value = data.get(field);
+        if (value) body[field] = parseInt(value, 10);
+    });
+
+    const res = await fetch('/mhtml', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify(body)
+    });
+    if (!res.ok) {
+        const errorData = await res.json();
+        throw new Error(errorData.error || 'MHTML capture failed');
+    }
+
+    clearResultUrls();
+    mhtmlFilename = res.headers.get('Content-Disposition').match(/filename="([^"]+)"/)[1];
+    mhtmlObjectUrl = URL.createObjectURL(await res.blob());
+    showResult('result-container-mhtml');
+    scrollToResult();
+}
+
+function downloadMhtml() {
+    if (!mhtmlObjectUrl) return;
+    const a = document.createElement('a');
+    a.href = mhtmlObjectUrl;
+    a.download = mhtmlFilename;
+    a.click();
+}
+
+function clearResultUrls() {
+    if (screenshotPreviewUrl) URL.revokeObjectURL(screenshotPreviewUrl);
+    if (mhtmlObjectUrl) URL.revokeObjectURL(mhtmlObjectUrl);
+    screenshotPreviewUrl = null;
+    mhtmlObjectUrl = null;
+    mhtmlFilename = null;
+    screenshotBlob = null;
+    document.getElementById('screenshot-img').removeAttribute('src');
+}
+
+function showResult(id) {
+    ['result-container', 'result-container-multi', 'result-container-mhtml'].forEach(resultId => {
+        document.getElementById(resultId).classList.toggle('visible', resultId === id);
+    });
+}
+
 function resetForm() {
     document.getElementById('screenshot-form').reset();
-    document.getElementById('result-container').classList.remove('visible');
-    document.getElementById('result-container-multi').classList.remove('visible');
+    showResult(null);
     document.getElementById('url').focus();
-    screenshotBlob = null;
+    clearResultUrls();
     multiImages = [];
 }
 
 function scrollToResult() {
-    const container = currentMode === 'multi'
-        ? document.getElementById('result-container-multi')
-        : document.getElementById('result-container');
+    const container = currentMode === 'multi' ? document.getElementById('result-container-multi')
+        : currentMode === 'mhtml' ? document.getElementById('result-container-mhtml')
+            : document.getElementById('result-container');
     container.scrollIntoView({ behavior: 'smooth' });
 }
 

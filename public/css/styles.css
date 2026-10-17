@@ -42,7 +42,10 @@ body {
 
 .mode-toggle { display: flex; gap: 8px; background: white; padding: 16px 30px; margin-bottom: 0; }
 .mode-btn { flex: 1; background: white; color: #444; border: 2px solid #d1d5db; padding: 12px; border-radius: 8px; font-weight: 600; cursor: pointer; transition: all 0.2s; }
-.mode-btn:hover { border-color: #667eea; color: #667eea; }
+.mode-btn:hover:not(:disabled) { border-color: #667eea; color: #667eea; }
+.mode-btn:disabled { opacity: 0.6; cursor: not-allowed; }
+.mhtml-options { margin-bottom: 16px; color: #444; font-size: 14px; }
+.mhtml-options input { margin-right: 8px; }
 .mode-btn.active { background: #667eea; border-color: #667eea; color: white; }
 
 .hidden { display: none; }

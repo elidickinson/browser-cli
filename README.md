@@ -96,7 +96,8 @@ Search for job posting
 - **History tracking**: History tracking for replay and scripting
 - **Ad blocking**: Optional ad and tracker blocking with custom filter list support
 - **JavaScript injection**: Execute custom JavaScript code on web pages
-- **HTTP API**: REST API endpoint for taking screenshots programmatically
+- **HTTP API**: REST API endpoints for screenshots and MHTML archives
+- **Web UI**: Capture and download MHTML archives alongside single and multi screenshots
 - **Multi-screenshot**: Capture multiple screenshots with different dimensions from a single page load
 
 ## Command

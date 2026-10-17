@@ -3,17 +3,18 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Browser CLI Screenshot Tool</title>
+<title>Browser CLI Capture Tool</title>
 <link rel="stylesheet" href="/css/styles.css">
 </head>
 <body>
 <div class="container">
   <div class="header">
-    <h1>📸 Browser CLI Screenshot Tool</h1>
+    <h1>📸 Browser CLI Capture Tool</h1>
   </div>
   <div class="mode-toggle">
     <button type="button" class="mode-btn active" data-mode="single" onclick="setMode('single')">Single</button>
     <button type="button" class="mode-btn" data-mode="multi" onclick="setMode('multi')">Multi</button>
+    <button type="button" class="mode-btn" data-mode="mhtml" onclick="setMode('mhtml')">MHTML</button>
   </div>
   <div class="form-container">
     <form id="screenshot-form">
@@ -36,6 +37,7 @@
         </div>
       </div>
 
+      <div id="screenshot-options">
       <div class="advanced-toggle" onclick="toggleAdvanced()">⚙️ Advanced Options</div>
       <div id="advanced-options" class="advanced-options">
         <div class="form-row">
@@ -57,11 +59,16 @@
           </div>
         </div>
       </div>
+      </div>
 
       <div id="multi-section" class="multi-section hidden">
         <h3>Output Configurations</h3>
         <div id="outputs-list"></div>
         <button type="button" class="btn btn-secondary" onclick="addOutput()">+ Add Output</button>
+      </div>
+
+      <div id="mhtml-options" class="mhtml-options hidden">
+        <label><input type="checkbox" name="asIs"> Skip page preparation (capture as-is)</label>
       </div>
 
       <button type="submit" class="btn" id="submit-btn">📸 Capture Screenshot</button>
@@ -78,9 +85,17 @@
 
   <div id="result-container-multi" class="result-container result-multi">
     <div class="result-actions">
-      <button class="btn btn-secondary" onclick="resetForm()">🔄 New Screenshot</button>
+      <button class="btn btn-secondary" onclick="resetForm()">🔄 New Capture</button>
     </div>
     <div id="multi-results" class="multi-results"></div>
+  </div>
+
+  <div id="result-container-mhtml" class="result-container result-mhtml">
+    <div class="result-actions">
+      <button class="btn btn-secondary" onclick="downloadMhtml()">⬇️ Download MHTML</button>
+      <button class="btn btn-secondary" onclick="resetForm()">🔄 New Capture</button>
+    </div>
+    <p>Your MHTML archive is ready to download.</p>
   </div>
 </div>
 <script src="/js/app.js"></script>

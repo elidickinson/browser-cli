@@ -10,6 +10,25 @@ const net = require('node:net');
 const { chromium } = require('patchright');
 const { captureMhtml, loadLazyContent } = require('../utils');
 
+async function listen(server) {
+  await new Promise(resolve => server.listen(0, '127.0.0.1', resolve));
+  return `http://127.0.0.1:${server.address().port}`;
+}
+
+async function closeServer(server) {
+  if (!server.listening) return;
+  await new Promise(resolve => {
+    server.close(resolve);
+    server.closeAllConnections();
+  });
+}
+
+function saveArchive(dir, name, data) {
+  const archive = path.join(dir, name);
+  fs.writeFileSync(archive, data);
+  return archive;
+}
+
 test('MHTML export embeds page assets and reopens offline', async () => {
   const svg = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="8"><rect width="16" height="8" fill="red"/></svg>';
   const server = http.createServer((req, res) => {
@@ -90,6 +109,156 @@ test('lazy-content preparation restores the viewport after a page error', async 
     assert.deepEqual(page.viewportSize(), { width: 800, height: 600 });
   } finally {
     await browser.close();
+  }
+});
+
+test('responsive MHTML preserves the captured srcset candidate across offline viewport/DPR changes', async () => {
+  const images = {
+    '/fallback.svg': [5, 4, 'green'],
+    '/small.svg': [400, 200, 'red'],
+    '/large.svg': [1800, 900, 'blue']
+  };
+  const server = http.createServer((req, res) => {
+    if (images[req.url]) {
+      const [width, height, color] = images[req.url];
+      res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+      return res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="${width}" height="${height}"><rect width="100%" height="100%" fill="${color}"/></svg>`);
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end('<!doctype html><img id="responsive" src="/fallback.svg" sizes="100vw" srcset="/small.svg 400w, /large.svg 1800w">');
+  });
+  const baseUrl = await listen(server);
+  let browser;
+  let dir;
+  const contexts = [];
+  try {
+    browser = await chromium.launch({ headless: true });
+    const original = await browser.newContext({ viewport: { width: 900, height: 600 }, deviceScaleFactor: 2 });
+    contexts.push(original);
+    const page = await original.newPage();
+    await page.goto(baseUrl, { waitUntil: 'load' });
+    assert.equal(new URL(await page.locator('#responsive').evaluate(img => img.currentSrc)).pathname, '/large.svg');
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'br-responsive-mhtml-'));
+    const archive = saveArchive(dir, 'page.mhtml', await captureMhtml(page));
+    await closeServer(server);
+
+    // Chromium flattens srcset to its captured candidate; reopening keeps those bytes usable.
+    for (const [viewport, dpr] of [
+      [{ width: 900, height: 600 }, 2],
+      [{ width: 250, height: 300 }, 1]
+    ]) {
+      const context = await browser.newContext({ viewport, deviceScaleFactor: dpr });
+      contexts.push(context);
+      await context.setOffline(true);
+      const offline = await context.newPage();
+      await offline.goto(pathToFileURL(archive).href, { waitUntil: 'load' });
+      assert.equal(await offline.locator('#responsive').evaluate(img => img.naturalWidth), 1800);
+    }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+    await browser?.close();
+    await closeServer(server);
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('lazy picture data-srcset content is embedded offline and lazy preparation restores viewport', async () => {
+  const widths = {
+    '/placeholder.svg': 7, '/fallback.svg': 9, '/wide-1.svg': 31,
+    '/wide-2.svg': 47, '/narrow-1.svg': 19, '/narrow-2.svg': 23
+  };
+  const server = http.createServer((req, res) => {
+    if (widths[req.url]) {
+      res.writeHead(200, { 'Content-Type': 'image/svg+xml' });
+      return res.end(`<svg xmlns="http://www.w3.org/2000/svg" width="${widths[req.url]}" height="13"><rect width="100%" height="100%" fill="red"/></svg>`);
+    }
+    res.writeHead(200, { 'Content-Type': 'text/html' });
+    res.end('<!doctype html><div style="height:1400px"></div><picture><source media="(min-width: 600px)" data-srcset="/wide-1.svg 1x, /wide-2.svg 2x"><img id="lazy" loading="lazy" src="/placeholder.svg" data-src="/fallback.svg" data-srcset="/narrow-1.svg 1x, /narrow-2.svg 2x"></picture>');
+  });
+  const baseUrl = await listen(server);
+  let browser;
+  let dir;
+  const contexts = [];
+  try {
+    browser = await chromium.launch({ headless: true });
+    const original = await browser.newContext({ viewport: { width: 800, height: 450 }, deviceScaleFactor: 2 });
+    contexts.push(original);
+    const page = await original.newPage();
+    await page.goto(baseUrl, { waitUntil: 'load' });
+    const viewport = page.viewportSize();
+    await loadLazyContent(page);
+    assert.deepEqual(page.viewportSize(), viewport);
+    assert.equal(new URL(await page.locator('#lazy').evaluate(img => img.currentSrc)).pathname, '/wide-2.svg');
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'br-lazy-mhtml-'));
+    const archive = saveArchive(dir, 'page.mhtml', await captureMhtml(page));
+    await closeServer(server);
+
+    const offlineContext = await browser.newContext({ viewport, deviceScaleFactor: 2 });
+    contexts.push(offlineContext);
+    await offlineContext.setOffline(true);
+    const offline = await offlineContext.newPage();
+    await offline.goto(pathToFileURL(archive).href, { waitUntil: 'load' });
+    assert.deepEqual(offline.viewportSize(), viewport);
+    assert.equal(new URL(await offline.locator('#lazy').evaluate(img => img.currentSrc)).pathname, '/wide-2.svg');
+    assert.equal(await offline.locator('#lazy').evaluate(img => img.naturalWidth), 24);
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+    await browser?.close();
+    await closeServer(server);
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
+  }
+});
+
+test('MHTML preserves UTF-8 and Windows-1252 HTTP text exactly offline', async () => {
+  const documents = {
+    '/utf8': {
+      header: 'text/html; charset=utf-8',
+      body: Buffer.from('<!doctype html><meta charset="utf-8"><p id="text">UTF-8 café — “quotes” €</p>', 'utf8'),
+      expected: 'UTF-8 café — “quotes” €'
+    },
+    '/windows-1252': {
+      header: 'text/html; charset=windows-1252',
+      body: Buffer.from('<!doctype html><p id="text">Windows caf\xe9 \x97 \x93quotes\x94 \x80</p>', 'latin1'),
+      expected: 'Windows café — “quotes” €'
+    }
+  };
+  const server = http.createServer((req, res) => {
+    const doc = documents[req.url];
+    if (!doc) return res.writeHead(404).end();
+    res.writeHead(200, { 'Content-Type': doc.header });
+    res.end(doc.body);
+  });
+  const baseUrl = await listen(server);
+  let browser;
+  let dir;
+  const contexts = [];
+  try {
+    browser = await chromium.launch({ headless: true });
+    dir = fs.mkdtempSync(path.join(os.tmpdir(), 'br-charset-mhtml-'));
+    const archives = [];
+    for (const [route, doc] of Object.entries(documents)) {
+      const context = await browser.newContext();
+      contexts.push(context);
+      const page = await context.newPage();
+      await page.goto(`${baseUrl}${route}`, { waitUntil: 'load' });
+      assert.equal(await page.locator('#text').innerText(), doc.expected);
+      archives.push([saveArchive(dir, `${route.slice(1)}.mhtml`, await captureMhtml(page)), doc.expected]);
+    }
+    await closeServer(server);
+
+    for (const [archive, expected] of archives) {
+      const context = await browser.newContext();
+      contexts.push(context);
+      await context.setOffline(true);
+      const page = await context.newPage();
+      await page.goto(pathToFileURL(archive).href, { waitUntil: 'load' });
+      assert.equal(await page.locator('#text').innerText(), expected);
+    }
+  } finally {
+    await Promise.all(contexts.map(context => context.close()));
+    await browser?.close();
+    await closeServer(server);
+    if (dir) fs.rmSync(dir, { recursive: true, force: true });
   }
 });
 

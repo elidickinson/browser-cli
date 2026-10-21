@@ -49,8 +49,9 @@ propublica.org###cta
 ###ocn-cookie-wrap
 ##.popup-wrapper---brix
 ##.popup-wrap.popup-newsletter
-###.popup[role="dialog"]
-###.is-open[role="dialog"]
+##.popup[role="dialog"]
+##.is-open[role="dialog"]
+##.is-visible[role="dialog"]
 ! https://www.charlottenewsvt.org/ anti adblock
 ###ROuPvtIdXyOZro
 ###xdBWbPneRFmtMom

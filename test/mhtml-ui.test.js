@@ -25,7 +25,7 @@ test('web UI downloads MHTML archives and keeps screenshot modes working', async
     }
     if (req.url === '/style.css') {
       res.writeHead(200, { 'Content-Type': 'text/css' });
-      return res.end('body { background-color: rgb(1, 2, 3); }');
+      return res.end('body { background-color: rgb(1, 2, 3); color: white; }');
     }
     res.writeHead(200, { 'Content-Type': 'text/html' });
     res.end('<!doctype html><title>UI archive</title><link rel="stylesheet" href="/style.css"><p>embedded page text</p><img src="/asset.svg"><div role="dialog" aria-modal="true">modal presence marker<button aria-label="Close" onclick="this.parentElement.remove()">close</button></div>');

@@ -4,6 +4,18 @@ const fs = require('fs');
 const os = require('os');
 const path = require('path');
 const { initAdblocker, waitForChallengeBypass, dismissModals, loadLazyContent, captureMhtml } = require('./utils');
+const TurndownService = require('turndown');
+const { Readability } = require('@mozilla/readability');
+const { JSDOM } = require('jsdom');
+
+function escapeHtml(str) {
+  return String(str)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
 
 // Optional ad blocking (off by default)
 // Enable with: BR_ADBLOCK=true br start
@@ -59,9 +71,9 @@ function humanDelay(minMs, maxMs) {
   return new Promise(r => setTimeout(r, delay));
 }
 
-const instanceName = process.env.BR_INSTANCE || 'default';
-const userDataDir = instanceName === 'default'
-  ? path.join(os.tmpdir(), `br_user_data_default_${Date.now()}`)
+const instanceName = process.env.BR_INSTANCE || 'anonymous';
+const userDataDir = instanceName === 'anonymous'
+  ? path.join(os.tmpdir(), `br_user_data_anonymous_${Date.now()}`)
   : path.join(os.homedir(), '.config', 'br', 'profiles', instanceName);
 
 (async () => {
@@ -79,16 +91,37 @@ const userDataDir = instanceName === 'default'
 
   let context, browser;
   const remoteWs = process.env.BR_REMOTE_WS;
+  const isNamedInstance = instanceName !== 'anonymous';
+  const storageStatePath = isNamedInstance
+    ? path.join(userDataDir, 'storage.json')
+    : null;
 
   if (remoteWs) {
-    browser = await chromium.connect(remoteWs);
-    context = await browser.newContext({ viewport });
+    try {
+      browser = await chromium.connect(remoteWs);
+    } catch (err) {
+      console.error(`Failed to connect to remote browser at ${remoteWs}`);
+      console.error(err.message);
+      process.exit(1);
+    }
+    const contextOpts = { viewport };
+    if (storageStatePath && fs.existsSync(storageStatePath)) {
+      contextOpts.storageState = storageStatePath;
+      console.log('Restored storage state from', storageStatePath);
+    }
+    context = await browser.newContext(contextOpts);
     console.log('Connected to remote browser:', remoteWs);
   } else {
-    context = await chromium.launchPersistentContext(userDataDir, {
-      headless: process.env.BR_HEADLESS === 'true',
-      viewport
-    });
+    try {
+      context = await chromium.launchPersistentContext(userDataDir, {
+        headless: process.env.BR_HEADLESS === 'true',
+        viewport
+      });
+    } catch (err) {
+      console.error('Failed to launch browser');
+      console.error(err.message);
+      process.exit(1);
+    }
     browser = context.browser();
   }
 
@@ -479,6 +512,7 @@ Try using --selector to specify the search input explicitly.`);
 
   app.get('/tree', async (req, res) => {
     try {
+      const full = req.query.full === '1';
       const page = activePage;
       const session = await page.context().newCDPSession(page);
       await session.send('DOM.enable');
@@ -610,8 +644,14 @@ Try using --selector to specify the search input explicitly.`);
       const rootAx = axNodes.find(n => !childSet.has(n.nodeId)) || axNodes[0];
 
       let idToNodeRef = {};
+      let omittedCount = 0;
 
-      function buildTree(nodeId) {
+      const interactiveRoles = new Set([
+        'button', 'link', 'textbox', 'checkbox', 'radio', 'combobox',
+        'menuitem', 'tab', 'slider', 'spinbutton', 'switch', 'searchbox'
+      ]);
+
+      function buildTree(nodeId, parentName = null) {
         const axNode = axMap.get(nodeId);
         if (!axNode) return null;
 
@@ -619,6 +659,18 @@ Try using --selector to specify the search input explicitly.`);
         const role = axNode.role?.value || '';
         const name = axNode.name?.value || '';
         const tag = domNode ? domNode.nodeName.toLowerCase() : null;
+        const childIds = axNode.childIds || [];
+
+        // Always drop InlineTextBox (even in full mode)
+        if (role === 'InlineTextBox') return null;
+
+        if (!full) {
+          // Drop StaticText whose name matches parent
+          if (role === 'StaticText' && name && name === parentName) {
+            omittedCount++;
+            return null;
+          }
+        }
 
         // Store node reference for CDP-based element resolution
         if (axNode.backendDOMNodeId) {
@@ -661,20 +713,51 @@ Try using --selector to specify the search input explicitly.`);
         }
 
         // Recursively build children
-        for (const childId of axNode.childIds || []) {
-          const childNode = buildTree(childId);
+        for (const childId of childIds) {
+          const childNode = buildTree(childId, name);
           if (childNode) {
             node.children.push(childNode);
+          }
+        }
+
+        if (!full) {
+          // Drop empty non-interactive 'none' nodes (checked after recursion
+          // since children like InlineTextBox may have been filtered out)
+          if (role === 'none' && node.children.length === 0) {
+            omittedCount++;
+            return null;
+          }
+          // Collapse single-child wrapper divs with no name
+          if ((role === 'none' || role === 'generic') && !name && tag === 'div' && node.children.length === 1) {
+            omittedCount++;
+            return node.children[0];
           }
         }
 
         return node;
       }
 
-      const tree = buildTree(rootAx.nodeId);
+      let tree = buildTree(rootAx.nodeId);
       lastIdToXPath = idToXPath; // Store the mapping globally
       lastIdToNodeRef = idToNodeRef;
-      res.json({ tree });
+
+      if (req.query.root) {
+        const findNode = (node, id) => {
+          if (!node) return null;
+          if (node.id === id) return node;
+          for (const child of node.children || []) {
+            const found = findNode(child, id);
+            if (found) return found;
+          }
+          return null;
+        };
+        tree = findNode(tree, req.query.root);
+        if (!tree) return res.status(400).send(`Node not found for ID: ${req.query.root}`);
+      }
+
+      const result = { tree };
+      if (omittedCount > 0) result.omittedCount = omittedCount;
+      res.json(result);
     } catch (err) {
       res.status(500).send(err.message + " " + err.stack);
     }
@@ -744,6 +827,90 @@ Try using --selector to specify the search input explicitly.`);
 
     } catch (err) {
       res.status(500).send(`Error extracting text: ${err.message}`);
+    }
+  });
+
+  app.post('/extract-content', async (req, res) => {
+    try {
+      const { selector } = req.body;
+      const page = activePage;
+      if (!page) return res.status(400).send('No active page');
+
+      // Extract metadata from the browser
+      const metadata = await page.evaluate(() => ({
+        url: window.location.href,
+        title: document.title,
+        description: document.querySelector('meta[name="description"]')?.content || ''
+      }));
+
+      let article;
+      let resolvedSelector = null;
+
+      if (selector) {
+        // Resolve selector to handle view-tree IDs and XPath
+        const resolved = await resolveSelector(page, selector);
+        resolvedSelector = resolved.actualSelector;
+
+        // Get outer HTML directly from the resolved element handle
+        const elementHtml = await resolved.element.evaluate(el => el.outerHTML);
+
+        // Create a minimal document with just this element
+        const minimalHtml = `
+          <!DOCTYPE html>
+          <html>
+            <head><title>${escapeHtml(metadata.title)}</title></head>
+            <body>${elementHtml}</body>
+          </html>
+        `;
+
+        const doc = new JSDOM(minimalHtml, { url: metadata.url }).window.document;
+        article = new Readability(doc).parse();
+
+        if (!article) {
+          return res.status(404).json({ error: 'Could not extract content from the selected element' });
+        }
+      } else {
+        // Get page HTML (rendered DOM) - only needed for full page extraction
+        const html = await page.content();
+
+        // Parse entire page with Readability
+        const dom = new JSDOM(html, { url: metadata.url });
+        article = new Readability(dom.window.document).parse();
+
+        if (!article) {
+          return res.status(404).json({ error: 'Could not extract main content from this page' });
+        }
+      }
+
+      // Convert article HTML to Markdown
+      const turndown = new TurndownService({
+        headingStyle: 'atx',
+        codeBlockStyle: 'fenced'
+      });
+
+      const markdownContent = turndown.turndown(article.content);
+
+      // Build response
+      const response = {
+        title: article.title || metadata.title,
+        url: metadata.url,
+        description: metadata.description,
+        byline: article.byline || '',
+        excerpt: article.excerpt || '',
+        content: markdownContent,
+        wordCount: markdownContent.split(/\s+/).filter(w => w.length > 0).length
+      };
+
+      if (resolvedSelector) {
+        response.selector = resolvedSelector;
+      }
+
+      record('extract-content', resolvedSelector ? { selector: resolvedSelector } : {});
+      res.json(response);
+
+    } catch (err) {
+      console.error('Error extracting content:', err);
+      res.status(500).json({ error: `Error extracting content: ${err.message}` });
     }
   });
 
@@ -1181,6 +1348,11 @@ Try using --selector to specify the search input explicitly.`);
 
   async function shutdown() {
     shuttingDown = true;
+    if (remoteWs && storageStatePath) {
+      fs.mkdirSync(path.dirname(storageStatePath), { recursive: true });
+      await context.storageState({ path: storageStatePath });
+      console.log('Saved storage state to', storageStatePath);
+    }
     await context.close();
     if (browser) await browser.close();
     process.exit(0);

@@ -15,20 +15,59 @@ async function captureMhtml(page) {
 async function detectChallengePage(page) {
   try {
     return await page.evaluate(() => {
-      // Cloudflare
-      if (document.title === 'Just a moment...' ||
-          window._cf_chl_opt ||
-          document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]') ||
-          (document.querySelector('meta[http-equiv="refresh"]') && document.title.includes('Just a moment'))) {
+      const title = document.title || '';
+      const text = document.body ? document.body.innerText.trim() : '';
+
+      // Wall page titles are unique full strings; only exact matches here so real
+      // pages with similar words in a headline are never scooped up.
+      if (title === 'Just a moment...' || title === 'Attention Required! | Cloudflare') {
         return 'cloudflare';
       }
-
-      // SiteGround
-      if (document.title === 'Robot Challenge Screen' ||
-          window.sgchallenge ||
-          Array.from(document.querySelectorAll('script')).some(script =>
-            script.textContent.includes('sgchallenge'))) {
+      if (title === 'Robot Challenge Screen') {
         return 'siteground';
+      }
+      if (title.startsWith('Sucuri WebSite Firewall')) {
+        return 'sucuri';
+      }
+
+      // Vendor challenge runtimes. A full-content page can load /cdn-cgi/
+      // challenge-platform in non-blocking mode while showing real content, so
+      // only count it as a wall on a near-empty page. _cf_chl_opt exists only on
+      // the Cloudflare wall itself.
+      if (window._cf_chl_opt) {
+        return 'cloudflare';
+      }
+      if (text.length < 500 &&
+          document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]')) {
+        return 'cloudflare';
+      }
+      if (window.sgchallenge) {
+        return 'siteground';
+      }
+      if (text.length < 500 &&
+          document.querySelector('script[src*="/_Incapsula_Resource"]')) {
+        return 'imperva';
+      }
+
+      // Interstitial copy: matched whole, near the very top of a short, otherwise empty page.
+      // Long article quotes sit further down the text and can't reach the first 80 chars.
+      const top = text.slice(0, 80);
+      const shortInterstitial = text.length < 300 &&
+        (/(this website is using a security service to protect itself from online attacks\.)/i.test(top) ||
+         /please stand by while we (are )?(checking|verifying) your browser/i.test(top) ||
+         /this process is automatic\./i.test(top) ||
+         /checking your browser before accessing/i.test(top));
+      if (shortInterstitial) {
+        return 'interstitial';
+      }
+
+      // A visible captcha widget plus a short "confirm you are human" page is a bot wall.
+      // Real pages never embed a captcha, so this needs both signals together.
+      const hasCaptchaWidget = document.querySelector(
+        'iframe[src*="hcaptcha"], iframe[src*="recaptcha"], iframe[src*="turnstile"], iframe[src*="challenges.cloudflare.com"]'
+      );
+      if (hasCaptchaWidget && text.length < 300 && /verify you are human|confirm you are human/i.test(top)) {
+        return 'interstitial';
       }
 
       return false;
@@ -211,6 +250,14 @@ async function loadLazyContent(page) {
   }
 }
 
+async function isBlankScreenshot(buffer) {
+  // sharp is an optional dependency, so require it only when analyzing a screenshot
+  const sharp = require('sharp');
+  const { entropy, channels } = await sharp(buffer).stats();
+  const maxStdev = Math.max(...channels.map(channel => channel.stdev));
+  return entropy < 0.5 && maxStdev < 5;
+}
+
 module.exports = {
   navigateForScreenshot,
   captureMhtml,
@@ -218,5 +265,6 @@ module.exports = {
   waitForChallengeBypass,
   dismissModals,
   initAdblocker,
-  loadLazyContent
+  loadLazyContent,
+  isBlankScreenshot
 };

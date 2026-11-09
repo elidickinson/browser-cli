@@ -59,6 +59,33 @@ GET /ax
 
 Returns the accessibility tree of the current page.
 
+### Extract main content
+```
+POST /extract-content
+Content-Type: application/json
+
+{
+  "selector": "article.content" // Optional: CSS selector to scope extraction
+}
+```
+
+Returns the main content of the page in LLM-friendly format:
+
+```json
+{
+  "title": "Page Title",
+  "url": "https://example.com/page",
+  "description": "Meta description of the page",
+  "byline": "Author name (if available)",
+  "excerpt": "Brief excerpt of the article",
+  "content": "# Markdown content\n\nThe main article content...",
+  "wordCount": 1234,
+  "selector": "article.content" // Only included if selector was specified
+}
+```
+
+Uses Mozilla Readability to extract the main article/content (stripping navigation, ads, sidebars, etc.) and converts it to clean Markdown using Turndown. Also extracts page metadata (title, meta description, Open Graph tags).
+
 ## Session Management
 
 ### Get browser info

@@ -6,8 +6,37 @@ const path = require('path');
 const http = require('http');
 const os = require('os');
 
+function writeOutputFile(label, content) {
+  const dir = path.join(os.tmpdir(), 'br_cli');
+  fs.mkdirSync(dir, { recursive: true });
+  const file = path.join(dir, `${label}-${Date.now()}.txt`);
+  fs.writeFileSync(file, content);
+  return file;
+}
+
+function printWithLimit(content, maxLines, filePath) {
+  console.log(`Full output: ${filePath}`);
+  if (maxLines > 0) {
+    const lines = content.split('\n');
+    console.log(lines.slice(0, maxLines).join('\n'));
+    if (lines.length > maxLines) {
+      console.error(`(truncated: showing ${maxLines} of ${lines.length} lines)`);
+    }
+  } else {
+    console.log(content);
+  }
+}
+
 const REGISTRY_DIR = path.join(os.homedir(), '.br');
 const REGISTRY_FILE = path.join(REGISTRY_DIR, 'instances.json');
+
+function readLogTail(logFile) {
+  try {
+    return fs.readFileSync(logFile, 'utf8').trimEnd() || null;
+  } catch {
+    return null;
+  }
+}
 
 class DaemonNotRunningError extends Error {
   constructor(message) {
@@ -160,18 +189,18 @@ program.addHelpText('before', () => {
   return `\nDaemon status: ${getDaemonStatus()}\n`;
 });
 
-program.option('-n, --name <name>', 'Instance name', 'default');
+program.option('-n, --name <name>', 'Instance name', 'anonymous');
 
 function getInstanceName() {
   // Parse --name from process.argv before commander processes subcommands
   const idx = process.argv.indexOf('--name') !== -1 ? process.argv.indexOf('--name') : process.argv.indexOf('-n');
   if (idx !== -1 && process.argv[idx + 1]) return process.argv[idx + 1];
-  return process.env.BR_INSTANCE || 'default';
+  return process.env.BR_INSTANCE || 'anonymous';
 }
 
 function getInstancePort(name) {
   const instance = getInstance(name);
-  if (!instance) throw new DaemonNotRunningError(`Instance is not running. Start it with: br${name !== 'default' ? ` --name ${name}` : ''} start`);
+  if (!instance) throw new DaemonNotRunningError(`Instance is not running. Start it with: br${name !== 'anonymous' ? ` --name ${name}` : ''} start`);
   return instance.port;
 }
 
@@ -179,10 +208,15 @@ async function startDaemon(name) {
   const args = [process.argv[1], '--name', name, 'start'];
   const { execFileSync } = require('child_process');
   // Unset BR_AUTOSTART to prevent recursion; BR_PARAMS flows through naturally
-  execFileSync(process.execPath, args, { stdio: 'pipe', env: { ...process.env, BR_AUTOSTART: '' } });
+  try {
+    execFileSync(process.execPath, args, { stdio: 'pipe', env: { ...process.env, BR_AUTOSTART: '' } });
+  } catch (err) {
+    const stderr = err.stderr ? err.stderr.toString().trim() : '';
+    throw new Error(`Daemon failed to start.${stderr ? '\n' + stderr : ''}`);
+  }
 
   const instance = getInstance(name);
-  if (!instance) throw new Error('Daemon failed to start.');
+  if (!instance) throw new Error('Daemon failed to start (not registered).');
   return instance.port;
 }
 
@@ -243,9 +277,9 @@ program
       }
     }
 
-    // Allocate port (default instance prefers 3030)
+    // Allocate port (anonymous instance prefers 3030)
     let port;
-    if (name === 'default' && !getInstance('default') && await isPortFree(3030)) {
+    if (name === 'anonymous' && !getInstance('anonymous') && await isPortFree(3030)) {
       port = 3030;
     } else {
       port = await allocatePort();
@@ -334,22 +368,37 @@ program
       });
 
     } else {
-      // Run in background - detached mode
+      // Run in background - detached mode, capture output to log file
+      const logFile = path.join(REGISTRY_DIR, `${name}.log`);
+      fs.mkdirSync(REGISTRY_DIR, { recursive: true });
+      const logFd = fs.openSync(logFile, 'w');
       const child = spawn(process.execPath, [path.join(__dirname, '../daemon.js')], {
         detached: true,
-        stdio: 'ignore',
+        stdio: ['ignore', logFd, logFd],
         env
       });
 
       child.unref();
+      fs.closeSync(logFd);
       registerInstance(name, port, child.pid);
 
       // Poll health endpoint to confirm daemon is ready
       const startTime = Date.now();
+      const healthTimeout = opts.remote ? 15000 : 10000;
       const checkHealth = async () => {
-        if (Date.now() - startTime > 5000) {
+        // Check if daemon process is still alive
+        let alive = true;
+        try { process.kill(child.pid, 0); } catch { alive = false; }
+
+        if (!alive || Date.now() - startTime > healthTimeout) {
           unregisterInstance(name);
-          console.error('Daemon failed to start in a timely manner.');
+          const log = readLogTail(logFile);
+          if (log) {
+            console.error('Daemon failed to start. Log output:');
+            console.error(log);
+          } else {
+            console.error('Daemon failed to start (no log output).');
+          }
           process.exit(EXIT_ERROR);
         }
 
@@ -487,7 +536,7 @@ program
   }));
 
 program
-  .command('press')
+  .command('press').alias('key')
   .description("Simulate a single key press (e.g., 'Enter', 'Tab').")
   .argument('<key>', "The key to press, as defined in Playwright's documentation.")
   .action(asyncAction(async (key) => {
@@ -595,36 +644,53 @@ program
 program
   .command('view-tree')
   .description("Display a hierarchical tree of the page's accessibility and DOM nodes.")
-  .action(async () => {
-    const response = await sendToInstance('/tree');
+  .option('--full', 'Show all nodes without smart omission')
+  .option('--root <id>', 'Show only the subtree under the given view-tree node ID')
+  .option('--max-lines <n>', 'Max lines to print to stdout (0=unlimited)', '0')
+  .action(async (opts) => {
+    const maxLines = parseInt(opts.maxLines, 10);
+    const params = new URLSearchParams();
+    if (opts.full) params.append('full', '1');
+    if (opts.root) params.append('root', opts.root);
+    const url = params.toString() ? `/tree?${params}` : '/tree';
+    const response = await sendToInstance(url);
     let tree = response.tree;
 
     // Handle the case where tree is still a string (daemon not restarted yet)
     if (typeof tree === 'string') {
-      console.log(tree);
+      const filePath = writeOutputFile('view-tree', tree);
+      printWithLimit(tree, maxLines, filePath);
       return;
     }
 
-    function displayNode(node, indent = 0) {
-      const parts = [`${'  '.repeat(indent)}[${node.id}]`];
+    const lines = [];
+
+    function collectNode(node, indent = 0) {
+      const parts = [`${' '.repeat(indent)}[${node.id}]`];
       if (node.role) parts.push(node.role);
       if (node.tag) parts.push(node.tag);
       if (node.name) parts.push(`: ${node.name}`);
-      console.log(parts.join(' '));
+      lines.push(parts.join(' '));
 
       if (node.options && node.options.length > 0) {
         const shown = node.options.map(o => `${o.value}="${o.label}"${o.selected ? '*' : ''}`).join(', ');
         const more = node.totalOptions > node.options.length ? ` (+${node.totalOptions - node.options.length} more)` : '';
-        console.log(`${'  '.repeat(indent + 1)}options: ${shown}${more}`);
+        lines.push(`${' '.repeat(indent + 1)}options: ${shown}${more}`);
       }
 
       if (node.children && node.children.length > 0) {
-        node.children.forEach(child => displayNode(child, indent + 1));
+        node.children.forEach(child => collectNode(child, indent + 1));
       }
     }
 
     if (tree) {
-      displayNode(tree);
+      collectNode(tree);
+      const content = lines.join('\n');
+      const filePath = writeOutputFile('view-tree', content);
+      printWithLimit(content, maxLines, filePath);
+      if (response.omittedCount > 0) {
+        console.error(`(omitted ${response.omittedCount} nodes, use --full to show all)`);
+      }
     } else {
       console.log('No tree data found');
     }
@@ -690,14 +756,45 @@ program
   .command('extract-text')
   .description('Extract visible text from the page or specific elements.')
   .option('-s, --selector <selector>', 'CSS selector, XPath expression, or numeric ID from view-tree to extract text from specific elements')
+  .option('--max-lines <n>', 'Max lines to print to stdout (0=unlimited)', '0')
   .action(asyncAction(async (opts) => {
+    const maxLines = parseInt(opts.maxLines, 10);
     const body = {};
     if (opts.selector) body.selector = opts.selector;
     const response = await sendToInstance('/extract-text', 'POST', body);
-    console.log(response.text);
+    let content = response.text;
     if (response.selector) {
-      console.log('(using selector:', response.selector + ')');
+      content += '\n(using selector: ' + response.selector + ')';
     }
+    const filePath = writeOutputFile('extract-text', content);
+    printWithLimit(content, maxLines, filePath);
+  }));
+
+program
+  .command('extract-content')
+  .description('Extract main content from the page in LLM-friendly format (metadata + Markdown).')
+  .option('-s, --selector <selector>', 'CSS selector, XPath expression, or numeric ID from view-tree to extract content from specific elements')
+  .option('--max-lines <n>', 'Max lines to print to stdout (0=unlimited)', '0')
+  .action(asyncAction(async (opts) => {
+    const maxLines = parseInt(opts.maxLines, 10);
+    const body = {};
+    if (opts.selector) body.selector = opts.selector;
+    const response = await sendToInstance('/extract-content', 'POST', body);
+
+    const parts = [];
+    parts.push(`Title: ${response.title}`);
+    parts.push(`URL: ${response.url}`);
+    if (response.description) parts.push(`Description: ${response.description}`);
+    if (response.byline) parts.push(`Byline: ${response.byline}`);
+    if (response.excerpt) parts.push(`Excerpt: ${response.excerpt}`);
+    parts.push(`Word count: ${response.wordCount}`);
+    parts.push('---');
+    parts.push(response.content);
+    if (response.selector) parts.push('\n(using selector: ' + response.selector + ')');
+
+    const content = parts.join('\n');
+    const filePath = writeOutputFile('extract-content', content);
+    printWithLimit(content, maxLines, filePath);
   }));
 
 // --- Navigation commands ---

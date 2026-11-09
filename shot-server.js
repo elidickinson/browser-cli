@@ -3,8 +3,18 @@ const { chromium } = require('patchright');
 const sharp = require('sharp');
 const path = require('path');
 const {
-  waitForChallengeBypass, dismissModals, initAdblocker, loadLazyContent, navigateForScreenshot, captureMhtml
+  waitForChallengeBypass, dismissModals, initAdblocker, loadLazyContent, navigateForScreenshot, captureMhtml,
+  isBlankScreenshot, detectChallengePage
 } = require('./utils');
+
+// Challenge pages and blank pages are not usable screenshots: report them as 409 so
+// callers can keep their last good capture instead of storing the bad image.
+async function screenshotProblem(page, buffer) {
+  const challenge = await detectChallengePage(page);
+  if (challenge) return `challenge: ${challenge}`;
+  if (await isBlankScreenshot(buffer)) return 'blank screenshot';
+  return null;
+}
 
 const PORT = process.env.SHOT_PORT || 3031;
 
@@ -71,6 +81,9 @@ const PORT = process.env.SHOT_PORT || 3031;
         await loadLazyContent(page);
       }
       const screenshotBuffer = await page.screenshot({ fullPage: isFullPage, type: 'png' });
+
+      const problem = await screenshotProblem(page, screenshotBuffer);
+      if (problem) return res.status(409).json({ error: problem });
 
       const format = output_format || 'png';
       const quality = output_quality ? parseInt(output_quality, 10) : 80;
@@ -191,6 +204,10 @@ const PORT = process.env.SHOT_PORT || 3031;
       await page.keyboard.press('Escape');
       await loadLazyContent(page);
       const screenshotBuffer = await page.screenshot({ fullPage: true, type: 'png' });
+
+      const problem = await screenshotProblem(page, screenshotBuffer);
+      if (problem) return res.status(409).json({ error: problem });
+
       const metadata = await sharp(screenshotBuffer).metadata();
 
       const images = await Promise.all(outputs.map(async (output) => {

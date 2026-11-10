@@ -2,6 +2,9 @@
   "name": "@browsemake/browser-cli",
   "version": "0.1.65",
   "type": "commonjs",
+  "scripts": {
+    "postinstall": "patch-package"
+  },
   "bin": {
     "br": "./bin/br.js"
   },
@@ -17,5 +20,8 @@
   },
   "optionalDependencies": {
     "sharp": "^0.34.5"
+  },
+  "devDependencies": {
+    "patch-package": "^8.0.1"
   }
 }

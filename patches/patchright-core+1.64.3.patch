@@ -1,0 +1,14 @@
+diff --git a/node_modules/patchright-core/lib/coreBundle.js b/node_modules/patchright-core/lib/coreBundle.js
+index 840b1d0..e93c928 100644
+--- a/node_modules/patchright-core/lib/coreBundle.js
++++ b/node_modules/patchright-core/lib/coreBundle.js
+@@ -42236,7 +42236,8 @@ var init_crBrowser = __esm({
+       async doCreateNewPage() {
+         const { targetId } = await this._browser._session.send("Target.createTarget", {
+           url: "about:blank",
+-          browserContextId: this._browserContextId
++          browserContextId: this._browserContextId,
++          focus: false
+         });
+         return this._browser._crPages.get(targetId)._page;
+       }

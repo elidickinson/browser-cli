@@ -107,6 +107,9 @@ Search for job posting
 br start
 ```
 
+In headed mode on macOS, page loads don't steal focus from other apps.
+A patchright-core patch, auto-applied by patch-package on install, creates pages with `focus: false`.
+
 For headless mode (without a visible browser window):
 ```bash
 br start --headless

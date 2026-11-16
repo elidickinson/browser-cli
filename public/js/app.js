@@ -275,7 +275,10 @@ async function capturePageFile(data) {
     clearResultUrls();
     pageFileName = filename;
     pageFileUrl = URL.createObjectURL(blob);
-    if (currentMode === 'html') document.getElementById('html-source').textContent = await blob.text();
+    if (currentMode === 'html') {
+        document.getElementById('html-final-url').textContent = `Final URL: ${res.headers.get('X-Final-URL')}`;
+        document.getElementById('html-source').textContent = await blob.text();
+    }
     showResult(`result-container-${currentMode}`);
     scrollToResult();
 }
@@ -296,6 +299,7 @@ function clearResultUrls() {
     pageFileName = null;
     screenshotBlob = null;
     document.getElementById('screenshot-img').removeAttribute('src');
+    document.getElementById('html-final-url').textContent = '';
     document.getElementById('html-source').textContent = '';
 }
 

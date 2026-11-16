@@ -137,7 +137,7 @@ Content-Type: application/json
 }
 ```
 
-Returns the screenshot as an image buffer with appropriate Content-Type header. The `X-Page-Status` response header carries the HTTP status of the document shown in the screenshot (after redirects and challenge reloads), and is set on 409 responses too. A non-2xx page status is still returned as 200 with the image.
+Returns the screenshot as an image buffer with appropriate Content-Type header. The `X-Page-Status` and `X-Final-URL` response headers carry the HTTP status and URL of the document shown in the screenshot (after redirects and challenge reloads), and are set on 409 responses too. A non-2xx page status is still returned as 200 with the image.
 
 ### Export a page as MHTML
 ```
@@ -153,14 +153,14 @@ Content-Type: application/json
 }
 ```
 
-Returns the MHTML archive bytes with `Content-Type: multipart/related` and an attachment filename. `width`, `height`, `waitTime`, and `asIs` are optional. By default, capture waits for challenge bypass (and fails if it does not clear), dismisses modals, and triggers lazy-loaded content. Set `asIs: true` to skip that preparation while still navigating to the URL.
+Returns the MHTML archive bytes with `Content-Type: multipart/related` and an attachment filename. `width`, `height`, `waitTime`, and `asIs` are optional. By default, capture waits for challenge bypass (and fails if it does not clear), dismisses modals, and triggers lazy-loaded content. Set `asIs: true` to skip that preparation while still navigating to the URL. The `X-Page-Status` and `X-Final-URL` response headers carry the HTTP status and URL of the captured document (after redirects and challenge reloads).
 
 ### Export a page as HTML
 ```
 POST /html
 ```
 
-Takes the same body and preparation as `POST /mhtml`. Returns the rendered DOM serialized as HTML (`Content-Type: text/html; charset=utf-8`) with an attachment filename. Resources are not embedded.
+Takes the same body, preparation, and response headers as `POST /mhtml`. Returns the rendered DOM serialized as HTML (`Content-Type: text/html; charset=utf-8`) with an attachment filename. Resources are not embedded.
 
 ### Capture multiple screenshots
 ```
@@ -184,6 +184,7 @@ Returns:
 ```json
 {
   "page_status": 200,
+  "final_url": "https://example.com/",
   "images": [
     {
       "data": "base64-encoded-image...",
@@ -195,7 +196,7 @@ Returns:
 }
 ```
 
-The `/shot-multi` endpoint loads the page once and generates multiple screenshots with different dimensions. `page_status` is the HTTP status of the document shown in the screenshots (after redirects and challenge reloads), and is included on 409 responses too. Each output specification can include:
+The `/shot-multi` endpoint loads the page once and generates multiple screenshots with different dimensions. `page_status` and `final_url` are the HTTP status and URL of the document shown in the screenshots (after redirects and challenge reloads), and are included on 409 responses too. Each output specification can include:
 - `height` - Crop to this height from the top of the page
 - `output_width` - Resize to this width (maintains aspect ratio)
 - `output_format` - Override format per output (png, jpg, webp)

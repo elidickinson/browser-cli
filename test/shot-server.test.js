@@ -68,12 +68,16 @@ async function stopShotServer(service) {
   ]);
 }
 
-test('shot endpoints report the status of the page that ends up on screen', async () => {
+test('shot endpoints report the status and URL of the page that ends up on screen', async () => {
   const fixture = http.createServer((req, res) => {
     const body = text => `<!doctype html><title>${text}</title><body style="margin:0;font:24px sans-serif"><div style="background:#222;color:#fff;padding:60px">${text}</div><p>${text}</p></body>`;
     if (req.url === '/js-redirect') {
       res.writeHead(200, { 'Content-Type': 'text/html' });
       return res.end('<!doctype html><title>Moved</title><script>location.replace("/gone")</script><body>moving on</body>');
+    }
+    if (req.url === '/http-redirect') {
+      res.writeHead(302, { Location: '/missing' });
+      return res.end();
     }
     if (req.url === '/gone') {
       res.writeHead(410, { 'Content-Type': 'text/html' });
@@ -97,15 +101,28 @@ test('shot endpoints report the status of the page that ends up on screen', asyn
     });
     assert.equal(shot.status, 200);
     assert.equal(shot.headers.get('x-page-status'), '410');
+    assert.equal(shot.headers.get('x-final-url'), `${origin}/gone`);
     assert.ok((await shot.arrayBuffer()).byteLength > 0);
+
+    const html = await fetch(`http://127.0.0.1:${server.port}/html`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: `${origin}/js-redirect`, waitTime: 0 })
+    });
+    assert.equal(html.status, 200);
+    assert.equal(html.headers.get('x-page-status'), '410');
+    assert.equal(html.headers.get('x-final-url'), `${origin}/gone`);
+    assert.match(await html.text(), /this page is gone/);
 
     const multi = await fetch(`http://127.0.0.1:${server.port}/shot-multi`, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ url: `${origin}/missing`, waitTime: 0, outputs: [{ height: 200 }] })
+      body: JSON.stringify({ url: `${origin}/http-redirect`, waitTime: 0, outputs: [{ height: 200 }] })
     });
     assert.equal(multi.status, 200);
-    assert.equal((await multi.json()).page_status, 404);
+    const multiBody = await multi.json();
+    assert.equal(multiBody.page_status, 404);
+    assert.equal(multiBody.final_url, `${origin}/missing`);
   } finally {
     if (service) await stopShotServer(service);
     await new Promise(resolve => {

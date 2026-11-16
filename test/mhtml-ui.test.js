@@ -139,6 +139,7 @@ test('web UI downloads MHTML archives and keeps screenshot modes working', async
     await page.locator('#waitTime').fill('0');
     await page.getByRole('button', { name: 'Capture HTML' }).click();
     await page.locator('#result-container-html.visible').waitFor();
+    assert.equal(await page.locator('#html-final-url').innerText(), `Final URL: ${url}/`);
     assert.match(await page.locator('#html-source').innerText(), /<p>embedded page text<\/p>/);
     const [htmlDownload] = await Promise.all([
       page.waitForEvent('download'),

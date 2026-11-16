@@ -25,6 +25,12 @@ async function pageStatus(page) {
   return status;
 }
 
+// Describe the document on screen, after HTTP redirects, JS redirects, and challenge reloads
+async function setPageHeaders(res, page) {
+  res.setHeader('X-Page-Status', await pageStatus(page));
+  res.setHeader('X-Final-URL', page.url());
+}
+
 const PORT = process.env.SHOT_PORT || 3031;
 // Well past the built-in waits (navigation, challenge, modals, lazy loading, screenshot) plus waitTime
 const REQUEST_TIMEOUT_MS = 120000;
@@ -110,8 +116,8 @@ const REQUEST_TIMEOUT_MS = 120000;
       }
       const screenshotBuffer = await page.screenshot({ fullPage: isFullPage, type: 'png' });
 
-      // Set before the challenge/blank check so 409 responses carry the status too
-      res.setHeader('X-Page-Status', await pageStatus(page));
+      // Set before the challenge/blank check so 409 responses carry them too
+      await setPageHeaders(res, page);
 
       const problem = await screenshotProblem(page, screenshotBuffer);
       if (problem) return res.status(409).json({ error: problem });
@@ -177,6 +183,7 @@ const REQUEST_TIMEOUT_MS = 120000;
       }
 
       const data = Buffer.from(await capture(page), 'utf8');
+      await setPageHeaders(res, page);
       const hostname = new URL(processedUrl).hostname.replace(/[^a-zA-Z0-9.-]/g, '') || 'page';
       res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Disposition', `attachment; filename="page-${hostname}-${Date.now()}.${extension}"`);
@@ -236,9 +243,10 @@ const REQUEST_TIMEOUT_MS = 120000;
       await loadLazyContent(page);
       const screenshotBuffer = await page.screenshot({ fullPage: true, type: 'png' });
       const status = await pageStatus(page);
+      const finalUrl = page.url();
 
       const problem = await screenshotProblem(page, screenshotBuffer);
-      if (problem) return res.status(409).json({ error: problem, page_status: status });
+      if (problem) return res.status(409).json({ error: problem, page_status: status, final_url: finalUrl });
 
       const metadata = await sharp(screenshotBuffer).metadata();
 
@@ -280,7 +288,7 @@ const REQUEST_TIMEOUT_MS = 120000;
         };
       }));
 
-      res.json({ page_status: status, images });
+      res.json({ page_status: status, final_url: finalUrl, images });
     } catch (err) {
       res.status(500).json({ error: `Error capturing screenshots: ${err.message}` });
     } finally {

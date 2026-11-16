@@ -1,5 +1,8 @@
 const assert = require('node:assert/strict');
 const http = require('node:http');
+const net = require('node:net');
+const path = require('node:path');
+const { spawn } = require('node:child_process');
 const { test } = require('node:test');
 const { chromium } = require('patchright');
 const { navigateForScreenshot } = require('../utils');
@@ -30,5 +33,84 @@ test('screenshot navigation captures before a subresource finishes loading', asy
     const closed = new Promise(resolve => server.close(resolve));
     server.closeAllConnections();
     await closed;
+  }
+});
+
+async function startShotServer() {
+  const probe = net.createServer();
+  await new Promise(resolve => probe.listen(0, '127.0.0.1', resolve));
+  const port = probe.address().port;
+  await new Promise(resolve => probe.close(resolve));
+
+  const service = spawn(process.execPath, [path.join(__dirname, '../shot-server.js')], {
+    env: { ...process.env, SHOT_PORT: String(port), BR_HEADLESS: 'true', BR_ADBLOCK: 'false' },
+    stdio: ['ignore', 'ignore', 'pipe']
+  });
+  let stderr = '';
+  service.stderr.setEncoding('utf8').on('data', chunk => { stderr += chunk; });
+
+  const deadline = Date.now() + 15000;
+  while (Date.now() < deadline) {
+    if (service.exitCode !== null) throw new Error(`shot-server exited: ${stderr}`);
+    try {
+      if ((await fetch(`http://127.0.0.1:${port}/health`)).ok) return { service, port };
+    } catch {}
+    await new Promise(resolve => setTimeout(resolve, 100));
+  }
+  throw new Error(`shot-server did not start: ${stderr}`);
+}
+
+async function stopShotServer(service) {
+  service.kill();
+  await Promise.race([
+    new Promise(resolve => service.once('exit', resolve)),
+    new Promise(resolve => setTimeout(resolve, 10000).unref())
+  ]);
+}
+
+test('shot endpoints report the status of the page that ends up on screen', async () => {
+  const fixture = http.createServer((req, res) => {
+    const body = text => `<!doctype html><title>${text}</title><body style="margin:0;font:24px sans-serif"><div style="background:#222;color:#fff;padding:60px">${text}</div><p>${text}</p></body>`;
+    if (req.url === '/js-redirect') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      return res.end('<!doctype html><title>Moved</title><script>location.replace("/gone")</script><body>moving on</body>');
+    }
+    if (req.url === '/gone') {
+      res.writeHead(410, { 'Content-Type': 'text/html' });
+      return res.end(body('this page is gone'));
+    }
+    res.writeHead(404, { 'Content-Type': 'text/html' });
+    res.end(body('this page does not exist'));
+  });
+  await new Promise(resolve => fixture.listen(0, '127.0.0.1', resolve));
+
+  let service;
+  try {
+    const server = await startShotServer();
+    service = server.service;
+    const origin = `http://127.0.0.1:${fixture.address().port}`;
+
+    const shot = await fetch(`http://127.0.0.1:${server.port}/shot`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: `${origin}/js-redirect`, waitTime: 0 })
+    });
+    assert.equal(shot.status, 200);
+    assert.equal(shot.headers.get('x-page-status'), '410');
+    assert.ok((await shot.arrayBuffer()).byteLength > 0);
+
+    const multi = await fetch(`http://127.0.0.1:${server.port}/shot-multi`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: `${origin}/missing`, waitTime: 0, outputs: [{ height: 200 }] })
+    });
+    assert.equal(multi.status, 200);
+    assert.equal((await multi.json()).page_status, 404);
+  } finally {
+    if (service) await stopShotServer(service);
+    await new Promise(resolve => {
+      fixture.close(resolve);
+      fixture.closeAllConnections();
+    });
   }
 });

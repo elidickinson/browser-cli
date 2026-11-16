@@ -345,17 +345,17 @@ Outputs: title, URL, description, byline, excerpt, word count, and the main cont
 
 ### HTTP API for Screenshots
 
-The daemon exposes HTTP endpoints for programmatic screenshot capture:
+By default the daemon serves page control on port 3030, and `shot-server.js` (`node shot-server.js`, port set by `SHOT_PORT`) serves the screenshot endpoints on port 3031:
 
 ```bash
 # Basic usage
 curl -X POST "http://localhost:3030/goto" -H "Content-Type: application/json" -d '{"url":"https://example.com"}'
 
 # Take a screenshot
-curl -X POST "http://localhost:3030/shot" -H "Content-Type: application/json" -d '{"url":"https://example.com","width":1920,"height":1080}' -o screenshot.png
+curl -X POST "http://localhost:3031/shot" -H "Content-Type: application/json" -d '{"url":"https://example.com","width":1920,"height":1080}' -o screenshot.png
 
 # Take multiple screenshots from a single page load
-curl -X POST "http://localhost:3030/shot-multi" -H "Content-Type: application/json" -d '{
+curl -X POST "http://localhost:3031/shot-multi" -H "Content-Type: application/json" -d '{
   "url": "https://example.com",
   "width": 1920,
   "outputs": [

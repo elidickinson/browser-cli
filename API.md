@@ -135,7 +135,7 @@ Content-Type: application/json
 }
 ```
 
-Returns the screenshot as an image buffer with appropriate Content-Type header.
+Returns the screenshot as an image buffer with appropriate Content-Type header. The `X-Page-Status` response header carries the HTTP status of the document shown in the screenshot (after redirects and challenge reloads), and is set on 409 responses too. A non-2xx page status is still returned as 200 with the image.
 
 ### Export a page as MHTML
 ```
@@ -174,6 +174,7 @@ Content-Type: application/json
 Returns:
 ```json
 {
+  "page_status": 200,
   "images": [
     {
       "data": "base64-encoded-image...",
@@ -185,7 +186,7 @@ Returns:
 }
 ```
 
-The `/shot-multi` endpoint loads the page once and generates multiple screenshots with different dimensions. Each output specification can include:
+The `/shot-multi` endpoint loads the page once and generates multiple screenshots with different dimensions. `page_status` is the HTTP status of the document shown in the screenshots (after redirects and challenge reloads), and is included on 409 responses too. Each output specification can include:
 - `height` - Crop to this height from the top of the page
 - `output_width` - Resize to this width (maintains aspect ratio)
 - `output_format` - Override format per output (png, jpg, webp)

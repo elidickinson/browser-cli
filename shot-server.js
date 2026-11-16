@@ -16,6 +16,15 @@ async function screenshotProblem(page, buffer) {
   return null;
 }
 
+// HTTP status of the document on screen. goto's response goes stale after JS redirects and
+// challenge reloads, and network responses include navigations that never commit (204s,
+// downloads). patchright evaluates in an isolated world, so page scripts can't spoof this.
+async function pageStatus(page) {
+  const status = await page.evaluate(() => performance.getEntriesByType('navigation')[0]?.responseStatus);
+  if (!status) throw new Error('page has no navigation response status');
+  return status;
+}
+
 const PORT = process.env.SHOT_PORT || 3031;
 
 (async () => {
@@ -81,6 +90,9 @@ const PORT = process.env.SHOT_PORT || 3031;
         await loadLazyContent(page);
       }
       const screenshotBuffer = await page.screenshot({ fullPage: isFullPage, type: 'png' });
+
+      // Set before the challenge/blank check so 409 responses carry the status too
+      res.setHeader('X-Page-Status', await pageStatus(page));
 
       const problem = await screenshotProblem(page, screenshotBuffer);
       if (problem) return res.status(409).json({ error: problem });
@@ -204,9 +216,10 @@ const PORT = process.env.SHOT_PORT || 3031;
       await page.keyboard.press('Escape');
       await loadLazyContent(page);
       const screenshotBuffer = await page.screenshot({ fullPage: true, type: 'png' });
+      const status = await pageStatus(page);
 
       const problem = await screenshotProblem(page, screenshotBuffer);
-      if (problem) return res.status(409).json({ error: problem });
+      if (problem) return res.status(409).json({ error: problem, page_status: status });
 
       const metadata = await sharp(screenshotBuffer).metadata();
 
@@ -248,7 +261,7 @@ const PORT = process.env.SHOT_PORT || 3031;
         };
       }));
 
-      res.json({ images });
+      res.json({ page_status: status, images });
     } catch (err) {
       res.status(500).json({ error: `Error capturing screenshots: ${err.message}` });
     } finally {

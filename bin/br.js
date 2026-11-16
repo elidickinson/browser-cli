@@ -5,6 +5,7 @@ const fs = require('fs');
 const path = require('path');
 const http = require('http');
 const os = require('os');
+const { PROFILES_DIR } = require('../utils');
 
 function writeOutputFile(label, content) {
   const dir = path.join(os.tmpdir(), 'br_cli');
@@ -452,18 +453,30 @@ program
   .command('list')
   .alias('ls')
   .description('List all running browser instances.')
-  .action(() => {
-    const registry = readRegistry();
-    const entries = Object.entries(registry);
-    if (entries.length === 0) {
-      console.log('No instances running.');
-      return;
+  .option('-a, --all', 'Also list saved profiles that are not running')
+  .action(listInstances);
+
+program
+  .command('profiles', { hidden: true })
+  .option('-a, --all')
+  .action(listInstances);
+
+function listInstances({ all }) {
+  const rows = Object.entries(readRegistry()).map(([name, e]) => [name, e.port, e.pid, 'running']);
+  if (all && fs.existsSync(PROFILES_DIR)) {
+    for (const d of fs.readdirSync(PROFILES_DIR, { withFileTypes: true })) {
+      if (d.isDirectory() && !rows.some(r => r[0] === d.name)) rows.push([d.name, '-', '-', 'stopped']);
     }
-    console.log('NAME'.padEnd(16) + 'PORT'.padEnd(8) + 'PID'.padEnd(10) + 'STATUS');
-    for (const [name, entry] of entries) {
-      console.log(name.padEnd(16) + String(entry.port).padEnd(8) + String(entry.pid).padEnd(10) + 'running');
-    }
-  });
+  }
+  if (rows.length === 0) {
+    console.log(all ? 'No instances or profiles found.' : 'No instances running.');
+    return;
+  }
+  console.log('NAME'.padEnd(16) + 'PORT'.padEnd(8) + 'PID'.padEnd(10) + 'STATUS');
+  for (const [name, port, pid, status] of rows) {
+    console.log(name.padEnd(16) + String(port).padEnd(8) + String(pid).padEnd(10) + status);
+  }
+}
 
 program
   .command('goto')

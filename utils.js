@@ -1,3 +1,8 @@
+const os = require('os');
+const path = require('path');
+
+const PROFILES_DIR = path.join(os.homedir(), '.config', 'br', 'profiles');
+
 async function navigateForScreenshot(page, url) {
   return page.goto(url, { timeout: 20000, waitUntil: 'domcontentloaded' });
 }
@@ -259,6 +264,7 @@ async function isBlankScreenshot(buffer) {
 }
 
 module.exports = {
+  PROFILES_DIR,
   navigateForScreenshot,
   captureMhtml,
   detectChallengePage,

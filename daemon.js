@@ -3,7 +3,7 @@ const { chromium } = require('patchright');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
-const { initAdblocker, waitForChallengeBypass, dismissModals, loadLazyContent, captureMhtml } = require('./utils');
+const { PROFILES_DIR, initAdblocker, waitForChallengeBypass, dismissModals, loadLazyContent, captureMhtml } = require('./utils');
 const TurndownService = require('turndown');
 const { Readability } = require('@mozilla/readability');
 const { JSDOM } = require('jsdom');
@@ -74,7 +74,7 @@ function humanDelay(minMs, maxMs) {
 const instanceName = process.env.BR_INSTANCE || 'anonymous';
 const userDataDir = instanceName === 'anonymous'
   ? path.join(os.tmpdir(), `br_user_data_anonymous_${Date.now()}`)
-  : path.join(os.homedir(), '.config', 'br', 'profiles', instanceName);
+  : path.join(PROFILES_DIR, instanceName);
 
 (async () => {
   // Initialize adblocker if enabled

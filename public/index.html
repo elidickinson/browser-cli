@@ -15,6 +15,7 @@
     <button type="button" class="mode-btn active" data-mode="single" onclick="setMode('single')">Single</button>
     <button type="button" class="mode-btn" data-mode="multi" onclick="setMode('multi')">Multi</button>
     <button type="button" class="mode-btn" data-mode="mhtml" onclick="setMode('mhtml')">MHTML</button>
+    <button type="button" class="mode-btn" data-mode="html" onclick="setMode('html')">HTML</button>
   </div>
   <div class="form-container">
     <form id="screenshot-form">
@@ -67,7 +68,7 @@
         <button type="button" class="btn btn-secondary" onclick="addOutput()">+ Add Output</button>
       </div>
 
-      <div id="mhtml-options" class="mhtml-options hidden">
+      <div id="page-file-options" class="page-file-options hidden">
         <label><input type="checkbox" name="asIs"> Skip page preparation (capture as-is)</label>
       </div>
 
@@ -92,10 +93,18 @@
 
   <div id="result-container-mhtml" class="result-container result-mhtml">
     <div class="result-actions">
-      <button class="btn btn-secondary" onclick="downloadMhtml()">⬇️ Download MHTML</button>
+      <button class="btn btn-secondary" onclick="downloadPageFile()">⬇️ Download MHTML</button>
       <button class="btn btn-secondary" onclick="resetForm()">🔄 New Capture</button>
     </div>
     <p>Your MHTML archive is ready to download.</p>
+  </div>
+
+  <div id="result-container-html" class="result-container result-html">
+    <div class="result-actions">
+      <button class="btn btn-secondary" onclick="downloadPageFile()">⬇️ Download HTML</button>
+      <button class="btn btn-secondary" onclick="resetForm()">🔄 New Capture</button>
+    </div>
+    <pre id="html-source" class="screenshot-preview html-source"></pre>
   </div>
 </div>
 <script src="/js/app.js"></script>

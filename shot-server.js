@@ -146,7 +146,8 @@ const REQUEST_TIMEOUT_MS = 120000;
     }
   });
 
-  app.post('/mhtml', async (req, res) => {
+  // Shared by /mhtml and /html: loads and prepares the page, then sends capture(page) as a download
+  const pageCaptureRoute = (label, contentType, extension, capture) => async (req, res) => {
     let context;
     try {
       const { url, width, height, waitTime, asIs } = req.body;
@@ -167,7 +168,7 @@ const REQUEST_TIMEOUT_MS = 120000;
       await navigateForScreenshot(page, processedUrl);
 
       if (!skipPreparation && !await waitForChallengeBypass(page)) {
-        throw new Error('Challenge page did not clear; MHTML was not captured.');
+        throw new Error(`Challenge page did not clear; ${label} was not captured.`);
       }
       await page.waitForTimeout(waitTime == null ? 1000 : parseInt(waitTime, 10));
       if (!skipPreparation) {
@@ -175,18 +176,21 @@ const REQUEST_TIMEOUT_MS = 120000;
         await loadLazyContent(page);
       }
 
-      const data = Buffer.from(await captureMhtml(page), 'utf8');
+      const data = Buffer.from(await capture(page), 'utf8');
       const hostname = new URL(processedUrl).hostname.replace(/[^a-zA-Z0-9.-]/g, '') || 'page';
-      res.setHeader('Content-Type', 'multipart/related; type="text/html"');
-      res.setHeader('Content-Disposition', `attachment; filename="page-${hostname}-${Date.now()}.mhtml"`);
+      res.setHeader('Content-Type', contentType);
+      res.setHeader('Content-Disposition', `attachment; filename="page-${hostname}-${Date.now()}.${extension}"`);
       res.setHeader('Content-Length', data.length);
       res.send(data);
     } catch (err) {
-      res.status(500).json({ error: `Error capturing MHTML: ${err.message}` });
+      res.status(500).json({ error: `Error capturing ${label}: ${err.message}` });
     } finally {
       await context?.close();
     }
-  });
+  };
+
+  app.post('/mhtml', pageCaptureRoute('MHTML', 'multipart/related; type="text/html"', 'mhtml', captureMhtml));
+  app.post('/html', pageCaptureRoute('HTML', 'text/html; charset=utf-8', 'html', page => page.content()));
 
   app.post('/shot-multi', async (req, res) => {
     let context;

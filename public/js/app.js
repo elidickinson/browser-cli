@@ -1,11 +1,21 @@
 let screenshotBlob = null;
 let screenshotPreviewUrl = null;
-let mhtmlObjectUrl = null;
-let mhtmlFilename = null;
+let pageFileUrl = null;
+let pageFileName = null;
 let currentFilename = 'screenshot.png';
 let currentMode = 'single';
 let isCapturing = false;
 let multiImages = [];
+
+const SUBMIT_LABELS = {
+    single: '📸 Capture Screenshot',
+    multi: '📸 Capture Multiple Screenshots',
+    mhtml: '🗃️ Capture MHTML Archive',
+    html: '📄 Capture HTML'
+};
+
+// Modes that download a page file (served by POST /<mode>) instead of a screenshot
+const isPageFileMode = mode => mode === 'mhtml' || mode === 'html';
 
 function toggleAdvanced() {
     document.getElementById('advanced-options').classList.toggle('visible');
@@ -23,10 +33,11 @@ function setMode(mode) {
     const heightGroup = document.getElementById('height').closest('.form-group');
     const outputWidthGroup = document.getElementById('output_width').closest('.form-group');
     const screenshotOptions = document.getElementById('screenshot-options');
-    const mhtmlOptions = document.getElementById('mhtml-options');
+    const pageFileOptions = document.getElementById('page-file-options');
 
-    screenshotOptions.classList.toggle('hidden', mode === 'mhtml');
-    mhtmlOptions.classList.toggle('hidden', mode !== 'mhtml');
+    screenshotOptions.classList.toggle('hidden', isPageFileMode(mode));
+    pageFileOptions.classList.toggle('hidden', !isPageFileMode(mode));
+    submitBtn.textContent = SUBMIT_LABELS[mode];
     if (mode === 'multi') {
         multiSection.classList.remove('hidden');
         heightGroup.classList.add('hidden');
@@ -36,12 +47,10 @@ function setMode(mode) {
             addOutput();
             addOutput();
         }
-        submitBtn.textContent = '📸 Capture Multiple Screenshots';
     } else {
         multiSection.classList.add('hidden');
         heightGroup.classList.remove('hidden');
         outputWidthGroup.classList.remove('hidden');
-        submitBtn.textContent = mode === 'mhtml' ? '🗃️ Capture MHTML Archive' : '📸 Capture Screenshot';
     }
     resetForm();
 }
@@ -95,8 +104,8 @@ async function captureScreenshot(e) {
     try {
         if (currentMode === 'multi') {
             await captureMultiScreenshot(data);
-        } else if (currentMode === 'mhtml') {
-            await captureMhtmlArchive(data);
+        } else if (isPageFileMode(currentMode)) {
+            await capturePageFile(data);
         } else {
             await captureSingleScreenshot(data);
         }
@@ -106,8 +115,7 @@ async function captureScreenshot(e) {
         isCapturing = false;
         document.querySelectorAll('.mode-btn, .result-actions button').forEach(button => { button.disabled = false; });
         btn.disabled = false;
-        btn.textContent = currentMode === 'multi' ? '📸 Capture Multiple Screenshots'
-            : currentMode === 'mhtml' ? '🗃️ Capture MHTML Archive' : '📸 Capture Screenshot';
+        btn.textContent = SUBMIT_LABELS[currentMode];
     }
 }
 
@@ -243,53 +251,56 @@ function downloadScreenshot() {
     URL.revokeObjectURL(a.href);
 }
 
-async function captureMhtmlArchive(data) {
+async function capturePageFile(data) {
+    const label = currentMode.toUpperCase();
     const body = { url: data.get('url'), asIs: data.get('asIs') === 'on' };
     ['width', 'height', 'waitTime'].forEach(field => {
         const value = data.get(field);
         if (value) body[field] = parseInt(value, 10);
     });
 
-    const res = await fetch('/mhtml', {
+    const res = await fetch(`/${currentMode}`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(body)
     });
     if (!res.ok) {
         const errorData = await res.json();
-        throw new Error(errorData.error || 'MHTML capture failed');
+        throw new Error(errorData.error || `${label} capture failed`);
     }
 
     const filename = res.headers.get('Content-Disposition')?.match(/filename="([^"]+)"/)?.[1];
-    if (!filename) throw new Error('Server did not provide an MHTML download filename');
+    if (!filename) throw new Error(`Server did not provide an ${label} download filename`);
     const blob = await res.blob();
     clearResultUrls();
-    mhtmlFilename = filename;
-    mhtmlObjectUrl = URL.createObjectURL(blob);
-    showResult('result-container-mhtml');
+    pageFileName = filename;
+    pageFileUrl = URL.createObjectURL(blob);
+    if (currentMode === 'html') document.getElementById('html-source').textContent = await blob.text();
+    showResult(`result-container-${currentMode}`);
     scrollToResult();
 }
 
-function downloadMhtml() {
-    if (!mhtmlObjectUrl) return;
+function downloadPageFile() {
+    if (!pageFileUrl) return;
     const a = document.createElement('a');
-    a.href = mhtmlObjectUrl;
-    a.download = mhtmlFilename;
+    a.href = pageFileUrl;
+    a.download = pageFileName;
     a.click();
 }
 
 function clearResultUrls() {
     if (screenshotPreviewUrl) URL.revokeObjectURL(screenshotPreviewUrl);
-    if (mhtmlObjectUrl) URL.revokeObjectURL(mhtmlObjectUrl);
+    if (pageFileUrl) URL.revokeObjectURL(pageFileUrl);
     screenshotPreviewUrl = null;
-    mhtmlObjectUrl = null;
-    mhtmlFilename = null;
+    pageFileUrl = null;
+    pageFileName = null;
     screenshotBlob = null;
     document.getElementById('screenshot-img').removeAttribute('src');
+    document.getElementById('html-source').textContent = '';
 }
 
 function showResult(id) {
-    ['result-container', 'result-container-multi', 'result-container-mhtml'].forEach(resultId => {
+    ['result-container', 'result-container-multi', 'result-container-mhtml', 'result-container-html'].forEach(resultId => {
         document.getElementById(resultId).classList.toggle('visible', resultId === id);
     });
 }
@@ -304,10 +315,8 @@ function resetForm() {
 }
 
 function scrollToResult() {
-    const container = currentMode === 'multi' ? document.getElementById('result-container-multi')
-        : currentMode === 'mhtml' ? document.getElementById('result-container-mhtml')
-            : document.getElementById('result-container');
-    container.scrollIntoView({ behavior: 'smooth' });
+    const id = currentMode === 'single' ? 'result-container' : `result-container-${currentMode}`;
+    document.getElementById(id).scrollIntoView({ behavior: 'smooth' });
 }
 
 document.getElementById('screenshot-form').addEventListener('submit', captureScreenshot);

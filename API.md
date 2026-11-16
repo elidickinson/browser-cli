@@ -155,6 +155,13 @@ Content-Type: application/json
 
 Returns the MHTML archive bytes with `Content-Type: multipart/related` and an attachment filename. `width`, `height`, `waitTime`, and `asIs` are optional. By default, capture waits for challenge bypass (and fails if it does not clear), dismisses modals, and triggers lazy-loaded content. Set `asIs: true` to skip that preparation while still navigating to the URL.
 
+### Export a page as HTML
+```
+POST /html
+```
+
+Takes the same body and preparation as `POST /mhtml`. Returns the rendered DOM serialized as HTML (`Content-Type: text/html; charset=utf-8`) with an attachment filename. Resources are not embedded.
+
 ### Capture multiple screenshots
 ```
 POST /shot-multi

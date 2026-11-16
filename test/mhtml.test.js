@@ -322,6 +322,16 @@ test('shot-server returns a downloadable MHTML archive with embedded assets', as
     assert.equal(asIsResponse.status, 200);
     assert.match(Buffer.from(await asIsResponse.arrayBuffer()).toString('utf8'), /modal presence marker/);
 
+    const htmlResponse = await fetch(`http://127.0.0.1:${port}/html`, {
+      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url })
+    });
+    assert.equal(htmlResponse.status, 200);
+    assert.match(htmlResponse.headers.get('content-type'), /text\/html/);
+    assert.match(htmlResponse.headers.get('content-disposition'), /attachment; filename=".*\.html"/);
+    const html = await htmlResponse.text();
+    assert.match(html, /<p>embedded page text<\/p>/);
+    assert.doesNotMatch(html, /modal presence marker/);
+
     dir = fs.mkdtempSync(path.join(os.tmpdir(), 'br-mhtml-http-test-'));
     const archivePath = path.join(dir, 'page.mhtml');
     fs.writeFileSync(archivePath, archive);

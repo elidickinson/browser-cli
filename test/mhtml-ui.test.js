@@ -134,6 +134,18 @@ test('web UI downloads MHTML archives and keeps screenshot modes working', async
     assert.equal(await page.locator('#result-container-mhtml').isVisible(), false);
     await page.unroute('**/mhtml');
 
+    await page.getByRole('button', { name: 'HTML', exact: true }).click();
+    await page.locator('#url').fill(url);
+    await page.locator('#waitTime').fill('0');
+    await page.getByRole('button', { name: 'Capture HTML' }).click();
+    await page.locator('#result-container-html.visible').waitFor();
+    assert.match(await page.locator('#html-source').innerText(), /<p>embedded page text<\/p>/);
+    const [htmlDownload] = await Promise.all([
+      page.waitForEvent('download'),
+      page.getByRole('button', { name: 'Download HTML' }).click()
+    ]);
+    assert.match(htmlDownload.suggestedFilename(), /^page-.*\.html$/);
+
     await page.getByRole('button', { name: 'Single', exact: true }).click();
     await page.locator('#url').fill(url);
     await page.locator('#height').fill('240');

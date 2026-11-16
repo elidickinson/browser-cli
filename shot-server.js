@@ -26,6 +26,8 @@ async function pageStatus(page) {
 }
 
 const PORT = process.env.SHOT_PORT || 3031;
+// Well past the built-in waits (navigation, challenge, modals, lazy loading, screenshot) plus waitTime
+const REQUEST_TIMEOUT_MS = 120000;
 
 (async () => {
   let adblocker = null;
@@ -40,6 +42,23 @@ const PORT = process.env.SHOT_PORT || 3031;
   };
   browser.on('disconnected', onBrowserDisconnected);
 
+  // Page calls like evaluate have no timeout, so a page that pegs its main thread would hang a
+  // request forever. Closing an overrunning context makes the stuck call reject so the request
+  // can finish. If Chrome can't open or close a context, it's wedged: exit so we get restarted.
+  async function newContext() {
+    let context;
+    let timer = setTimeout(() => {
+      timer = setTimeout(() => {
+        console.error('Chrome did not close a timed-out context; exiting so the service manager can restart');
+        process.exit(1);
+      }, 10000);
+      context?.close({ reason: `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s` });
+    }, REQUEST_TIMEOUT_MS);
+    context = await browser.newContext();
+    context.on('close', () => clearTimeout(timer));
+    return context;
+  }
+
   const app = express();
   app.use(express.json());
   app.use(express.static(path.join(__dirname, 'public')));
@@ -47,7 +66,7 @@ const PORT = process.env.SHOT_PORT || 3031;
   app.get('/health', (req, res) => res.send('ok'));
 
   app.post('/shot', async (req, res) => {
-    let page;
+    let context;
     try {
       const { url, width, height, waitTime, output_width, output_format, output_quality } = req.body;
 
@@ -58,8 +77,8 @@ const PORT = process.env.SHOT_PORT || 3031;
         processedUrl = `https://${url}`;
       }
 
-      const context = await browser.newContext();
-      page = await context.newPage();
+      context = await newContext();
+      const page = await context.newPage();
       if (adblocker) await adblocker.enableBlockingInPage(page);
 
       if (width || height) {
@@ -123,11 +142,7 @@ const PORT = process.env.SHOT_PORT || 3031;
     } catch (err) {
       res.status(500).json({ error: `Error capturing screenshot: ${err.message}` });
     } finally {
-      if (page) {
-        const ctx = page.context();
-        await page.close();
-        await ctx.close();
-      }
+      await context?.close();
     }
   });
 
@@ -139,7 +154,7 @@ const PORT = process.env.SHOT_PORT || 3031;
       const skipPreparation = asIs === true;
 
       const processedUrl = url.startsWith('http://') || url.startsWith('https://') ? url : `https://${url}`;
-      context = await browser.newContext();
+      context = await newContext();
       const page = await context.newPage();
       if (adblocker) await adblocker.enableBlockingInPage(page);
 
@@ -174,7 +189,7 @@ const PORT = process.env.SHOT_PORT || 3031;
   });
 
   app.post('/shot-multi', async (req, res) => {
-    let page;
+    let context;
     try {
       const { url, width, waitTime, outputs, output_format, output_quality } = req.body;
 
@@ -188,8 +203,8 @@ const PORT = process.env.SHOT_PORT || 3031;
         processedUrl = `https://${url}`;
       }
 
-      const context = await browser.newContext();
-      page = await context.newPage();
+      context = await newContext();
+      const page = await context.newPage();
       if (adblocker) await adblocker.enableBlockingInPage(page);
 
       await page.setViewportSize({ width: width ? parseInt(width, 10) : 1280, height: 720 });
@@ -265,11 +280,7 @@ const PORT = process.env.SHOT_PORT || 3031;
     } catch (err) {
       res.status(500).json({ error: `Error capturing screenshots: ${err.message}` });
     } finally {
-      if (page) {
-        const ctx = page.context();
-        await page.close();
-        await ctx.close();
-      }
+      await context?.close();
     }
   });
 

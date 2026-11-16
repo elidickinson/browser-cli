@@ -237,8 +237,10 @@ async function loadLazyContent(page) {
   const viewport = page.viewportSize();
   try {
     if (viewport) {
+      // Capped because infinite-scroll pages can report enormous heights, and a viewport that tall
+      // can bog down Chrome. 40000px is the tallest capture tested to work (see doc above).
       const pageHeight = await page.evaluate(() => document.documentElement.scrollHeight);
-      await page.setViewportSize({ width: viewport.width, height: Math.max(pageHeight, 10000) });
+      await page.setViewportSize({ width: viewport.width, height: Math.min(Math.max(pageHeight, 10000), 40000) });
       await page.waitForTimeout(500);
     }
 

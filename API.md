@@ -120,6 +120,8 @@ Gracefully shuts down the browser daemon.
 
 Do not expose this server to untrusted clients. It can fetch internal-network URLs, and MHTML exports include page content and embedded resources.
 
+Requests that run longer than 120 seconds fail with a 500. If Chrome stops responding entirely, the server exits so its service manager can restart it.
+
 ### Capture single screenshot
 ```
 POST /shot

@@ -4,7 +4,7 @@ const sharp = require('sharp');
 const path = require('path');
 const {
   waitForChallengeBypass, dismissModals, initAdblocker, loadLazyContent, navigateForScreenshot, captureMhtml,
-  isBlankScreenshot, detectChallengePage
+  isBlankScreenshot, detectChallengePage, retryOnNavigation
 } = require('./utils');
 
 // Challenge pages and blank pages are not usable screenshots: report them as 409 so
@@ -35,17 +35,29 @@ const PORT = process.env.SHOT_PORT || 3031;
 // Well past the built-in waits (navigation, challenge, modals, lazy loading, screenshot) plus waitTime
 const REQUEST_TIMEOUT_MS = 120000;
 
+// Runs in finally blocks after the response is sent. Express 4 doesn't handle rejected async
+// handlers, so a throw here would crash the process and drop every other request in flight.
+function closeContext(context) {
+  return context?.close().catch(err => console.error(`Closing browser context failed: ${err.message}`));
+}
+
 (async () => {
+  let server;
+  // Stop taking requests and give in-flight ones a few seconds to fail with an HTTP error
+  // (their page calls reject once Chrome is gone) instead of dropping their connections
+  function exitForRestart(reason) {
+    console.error(`${reason}; exiting so the service manager can restart`);
+    setTimeout(() => process.exit(1), 5000);
+    server?.close(() => process.exit(1));
+  }
+
   let adblocker = null;
   if (process.env.BR_ADBLOCK === 'true') {
     adblocker = await initAdblocker();
   }
 
   const browser = await chromium.launch({ headless: process.env.BR_HEADLESS !== 'false' });
-  const onBrowserDisconnected = () => {
-    console.error('Browser disconnected; exiting so the service manager can restart');
-    process.exit(1);
-  };
+  const onBrowserDisconnected = () => exitForRestart('Browser disconnected');
   browser.on('disconnected', onBrowserDisconnected);
 
   // Page calls like evaluate have no timeout, so a page that pegs its main thread would hang a
@@ -54,11 +66,10 @@ const REQUEST_TIMEOUT_MS = 120000;
   async function newContext() {
     let context;
     let timer = setTimeout(() => {
-      timer = setTimeout(() => {
-        console.error('Chrome did not close a timed-out context; exiting so the service manager can restart');
-        process.exit(1);
-      }, 10000);
-      context?.close({ reason: `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s` });
+      timer = setTimeout(() => exitForRestart('Chrome did not close a timed-out context'), 10000);
+      // If closing fails, the timer above restarts the service
+      context?.close({ reason: `Request timed out after ${REQUEST_TIMEOUT_MS / 1000}s` })
+        .catch(err => console.error(`Closing timed-out context failed: ${err.message}`));
     }, REQUEST_TIMEOUT_MS);
     context = await browser.newContext();
     context.on('close', () => clearTimeout(timer));
@@ -96,30 +107,31 @@ const REQUEST_TIMEOUT_MS = 120000;
       await navigateForScreenshot(page, processedUrl);
       await waitForChallengeBypass(page);
 
-      await page.addStyleTag({
-        content: `
-          ::-webkit-scrollbar { display: none; }
-          html { scrollbar-width: none; }
-          html { -ms-overflow-style: none; }
-        `
+      const { screenshotBuffer, problem } = await retryOnNavigation(page, async () => {
+        await page.addStyleTag({
+          content: `
+            ::-webkit-scrollbar { display: none; }
+            html { scrollbar-width: none; }
+            html { -ms-overflow-style: none; }
+          `
+        });
+
+        const additionalWait = waitTime == null ? 1000 : parseInt(waitTime, 10);
+        await page.waitForTimeout(additionalWait);
+        await dismissModals(page);
+
+        const isFullPage = !height;
+        if (isFullPage) {
+          // Catch late popups; loadLazyContent's waits give any close animation time to finish
+          await page.keyboard.press('Escape');
+          await loadLazyContent(page);
+        }
+        const screenshotBuffer = await page.screenshot({ fullPage: isFullPage, type: 'png' });
+
+        // Set before the challenge/blank check so 409 responses carry them too
+        await setPageHeaders(res, page);
+        return { screenshotBuffer, problem: await screenshotProblem(page, screenshotBuffer) };
       });
-
-      const additionalWait = waitTime == null ? 1000 : parseInt(waitTime, 10);
-      await page.waitForTimeout(additionalWait);
-      await dismissModals(page);
-
-      const isFullPage = !height;
-      if (isFullPage) {
-        // Catch late popups; loadLazyContent's waits give any close animation time to finish
-        await page.keyboard.press('Escape');
-        await loadLazyContent(page);
-      }
-      const screenshotBuffer = await page.screenshot({ fullPage: isFullPage, type: 'png' });
-
-      // Set before the challenge/blank check so 409 responses carry them too
-      await setPageHeaders(res, page);
-
-      const problem = await screenshotProblem(page, screenshotBuffer);
       if (problem) return res.status(409).json({ error: problem });
 
       const format = output_format || 'png';
@@ -148,7 +160,7 @@ const REQUEST_TIMEOUT_MS = 120000;
     } catch (err) {
       res.status(500).json({ error: `Error capturing screenshot: ${err.message}` });
     } finally {
-      await context?.close();
+      await closeContext(context);
     }
   });
 
@@ -176,14 +188,16 @@ const REQUEST_TIMEOUT_MS = 120000;
       if (!skipPreparation && !await waitForChallengeBypass(page)) {
         throw new Error(`Challenge page did not clear; ${label} was not captured.`);
       }
-      await page.waitForTimeout(waitTime == null ? 1000 : parseInt(waitTime, 10));
-      if (!skipPreparation) {
-        await dismissModals(page);
-        await loadLazyContent(page);
-      }
-
-      const data = Buffer.from(await capture(page), 'utf8');
-      await setPageHeaders(res, page);
+      const data = await retryOnNavigation(page, async () => {
+        await page.waitForTimeout(waitTime == null ? 1000 : parseInt(waitTime, 10));
+        if (!skipPreparation) {
+          await dismissModals(page);
+          await loadLazyContent(page);
+        }
+        const data = Buffer.from(await capture(page), 'utf8');
+        await setPageHeaders(res, page);
+        return data;
+      });
       const hostname = new URL(processedUrl).hostname.replace(/[^a-zA-Z0-9.-]/g, '') || 'page';
       res.setHeader('Content-Type', contentType);
       res.setHeader('Content-Disposition', `attachment; filename="page-${hostname}-${Date.now()}.${extension}"`);
@@ -192,7 +206,7 @@ const REQUEST_TIMEOUT_MS = 120000;
     } catch (err) {
       res.status(500).json({ error: `Error capturing ${label}: ${err.message}` });
     } finally {
-      await context?.close();
+      await closeContext(context);
     }
   };
 
@@ -223,29 +237,34 @@ const REQUEST_TIMEOUT_MS = 120000;
       await navigateForScreenshot(page, processedUrl);
       await waitForChallengeBypass(page);
 
-      await page.addStyleTag({
-        content: `
-          ::-webkit-scrollbar { display: none; }
-          html { scrollbar-width: none; }
-          html { -ms-overflow-style: none; }
-        `
-      });
+      const { screenshotBuffer, status, finalUrl, problem } = await retryOnNavigation(page, async () => {
+        await page.addStyleTag({
+          content: `
+            ::-webkit-scrollbar { display: none; }
+            html { scrollbar-width: none; }
+            html { -ms-overflow-style: none; }
+          `
+        });
 
-      const additionalWait = waitTime == null ? 1000 : parseInt(waitTime, 10);
-      await page.waitForTimeout(additionalWait);
-      await dismissModals(page);
+        const additionalWait = waitTime == null ? 1000 : parseInt(waitTime, 10);
+        await page.waitForTimeout(additionalWait);
+        await dismissModals(page);
+
+        // Catch late popups; loadLazyContent's waits give any close animation time to finish
+        await page.keyboard.press('Escape');
+        await loadLazyContent(page);
+        const screenshotBuffer = await page.screenshot({ fullPage: true, type: 'png' });
+        return {
+          screenshotBuffer,
+          status: await pageStatus(page),
+          finalUrl: page.url(),
+          problem: await screenshotProblem(page, screenshotBuffer)
+        };
+      });
 
       const format = output_format || 'png';
       const quality = output_quality ? parseInt(output_quality, 10) : 80;
 
-      // Catch late popups; loadLazyContent's waits give any close animation time to finish
-      await page.keyboard.press('Escape');
-      await loadLazyContent(page);
-      const screenshotBuffer = await page.screenshot({ fullPage: true, type: 'png' });
-      const status = await pageStatus(page);
-      const finalUrl = page.url();
-
-      const problem = await screenshotProblem(page, screenshotBuffer);
       if (problem) return res.status(409).json({ error: problem, page_status: status, final_url: finalUrl });
 
       const metadata = await sharp(screenshotBuffer).metadata();
@@ -292,7 +311,7 @@ const REQUEST_TIMEOUT_MS = 120000;
     } catch (err) {
       res.status(500).json({ error: `Error capturing screenshots: ${err.message}` });
     } finally {
-      await context?.close();
+      await closeContext(context);
     }
   });
 
@@ -307,7 +326,7 @@ const REQUEST_TIMEOUT_MS = 120000;
     await shutdown();
   });
 
-  app.listen(PORT, () => {
+  server = app.listen(PORT, () => {
     console.log(`shot-server running on port ${PORT}`);
   });
 

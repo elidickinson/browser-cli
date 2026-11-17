@@ -75,6 +75,10 @@ test('shot endpoints report the status and URL of the page that ends up on scree
       res.writeHead(200, { 'Content-Type': 'text/html' });
       return res.end('<!doctype html><title>Moved</title><script>location.replace("/gone")</script><body>moving on</body>');
     }
+    if (req.url === '/late-redirect') {
+      res.writeHead(200, { 'Content-Type': 'text/html' });
+      return res.end('<!doctype html><title>Loading</title><script>setTimeout(() => location.replace("/gone"), 1500)</script><body>loading</body>');
+    }
     if (req.url === '/http-redirect') {
       res.writeHead(302, { Location: '/missing' });
       return res.end();
@@ -113,6 +117,15 @@ test('shot endpoints report the status and URL of the page that ends up on scree
     assert.equal(html.headers.get('x-page-status'), '410');
     assert.equal(html.headers.get('x-final-url'), `${origin}/gone`);
     assert.match(await html.text(), /this page is gone/);
+
+    const lateHtml = await fetch(`http://127.0.0.1:${server.port}/html`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ url: `${origin}/late-redirect`, waitTime: 0 })
+    });
+    assert.equal(lateHtml.status, 200, await lateHtml.clone().text());
+    assert.equal(lateHtml.headers.get('x-final-url'), `${origin}/gone`);
+    assert.match(await lateHtml.text(), /this page is gone/);
 
     const multi = await fetch(`http://127.0.0.1:${server.port}/shot-multi`, {
       method: 'POST',

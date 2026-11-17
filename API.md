@@ -120,7 +120,9 @@ Gracefully shuts down the browser daemon.
 
 Do not expose this server to untrusted clients. It can fetch internal-network URLs, and MHTML exports include page content and embedded resources.
 
-Requests that run longer than 120 seconds fail with a 500. If Chrome stops responding entirely, the server exits so its service manager can restart it.
+Requests that run longer than 120 seconds fail with a 500. If Chrome crashes or stops responding entirely, in-flight requests fail with a 500 and the server exits so its service manager can restart it.
+
+All endpoints wait for the page to settle before capturing: the document must be at least 1 second old and its DOM unchanged for 500 ms, for up to 5 seconds. If the page loads a new document during preparation or capture (a self-reloading interstitial or a late redirect, for example), the endpoint settles the new page and starts again, up to 3 tries. `waitTime` (default 1000 ms) is an extra fixed wait on top of that.
 
 ### Capture single screenshot
 ```

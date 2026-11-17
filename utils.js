@@ -17,69 +17,80 @@ async function captureMhtml(page) {
   }
 }
 
+// A page call failed because the page swapped in a new document mid-call
+function isNavigationError(err) {
+  return /Execution context was destroyed|page is navigating/.test(err.message);
+}
+
 async function detectChallengePage(page) {
-  try {
-    return await page.evaluate(() => {
-      const title = document.title || '';
-      const text = document.body ? document.body.innerText.trim() : '';
+  return page.evaluate(() => {
+    const title = document.title || '';
+    const text = document.body ? document.body.innerText.trim() : '';
 
-      // Wall page titles are unique full strings; only exact matches here so real
-      // pages with similar words in a headline are never scooped up.
-      if (title === 'Just a moment...' || title === 'Attention Required! | Cloudflare') {
-        return 'cloudflare';
-      }
-      if (title === 'Robot Challenge Screen') {
-        return 'siteground';
-      }
-      if (title.startsWith('Sucuri WebSite Firewall')) {
-        return 'sucuri';
-      }
+    // Wall page titles are unique full strings; only exact matches here so real
+    // pages with similar words in a headline are never scooped up.
+    if (title === 'Just a moment...' || title === 'Attention Required! | Cloudflare') {
+      return 'cloudflare';
+    }
+    if (title === 'Robot Challenge Screen') {
+      return 'siteground';
+    }
+    if (title.startsWith('Sucuri WebSite Firewall')) {
+      return 'sucuri';
+    }
+    // Self-hosted proof-of-work wall that reloads itself once solved
+    if (title === 'Checking your browser...') {
+      return 'interstitial';
+    }
 
-      // Vendor challenge runtimes. A full-content page can load /cdn-cgi/
-      // challenge-platform in non-blocking mode while showing real content, so
-      // only count it as a wall on a near-empty page. _cf_chl_opt exists only on
-      // the Cloudflare wall itself.
-      if (window._cf_chl_opt) {
-        return 'cloudflare';
-      }
-      if (text.length < 500 &&
-          document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]')) {
-        return 'cloudflare';
-      }
-      if (window.sgchallenge) {
-        return 'siteground';
-      }
-      if (text.length < 500 &&
-          document.querySelector('script[src*="/_Incapsula_Resource"]')) {
-        return 'imperva';
-      }
+    // Vendor challenge runtimes. A full-content page can load /cdn-cgi/
+    // challenge-platform in non-blocking mode while showing real content, so
+    // only count it as a wall on a near-empty page. _cf_chl_opt exists only on
+    // the Cloudflare wall itself.
+    if (window._cf_chl_opt) {
+      return 'cloudflare';
+    }
+    if (text.length < 500 &&
+        document.querySelector('script[src*="/cdn-cgi/challenge-platform/"]')) {
+      return 'cloudflare';
+    }
+    if (window.sgchallenge) {
+      return 'siteground';
+    }
+    // DataDome serves its captcha and block pages from captcha-delivery.com; its normal
+    // page tag loads from datadome.co instead
+    if (text.length < 500 &&
+        document.querySelector('script[src*="captcha-delivery.com"], iframe[src*="captcha-delivery.com"]')) {
+      return 'datadome';
+    }
+    if (text.length < 500 &&
+        document.querySelector('script[src*="/_Incapsula_Resource"]')) {
+      return 'imperva';
+    }
 
-      // Interstitial copy: matched whole, near the very top of a short, otherwise empty page.
-      // Long article quotes sit further down the text and can't reach the first 80 chars.
-      const top = text.slice(0, 80);
-      const shortInterstitial = text.length < 300 &&
-        (/(this website is using a security service to protect itself from online attacks\.)/i.test(top) ||
-         /please stand by while we (are )?(checking|verifying) your browser/i.test(top) ||
-         /this process is automatic\./i.test(top) ||
-         /checking your browser before accessing/i.test(top));
-      if (shortInterstitial) {
-        return 'interstitial';
-      }
+    // Interstitial copy: matched whole, near the very top of a short, otherwise empty page.
+    // Long article quotes sit further down the text and can't reach the first 80 chars.
+    const top = text.slice(0, 80);
+    const shortInterstitial = text.length < 300 &&
+      (/(this website is using a security service to protect itself from online attacks\.)/i.test(top) ||
+       /please stand by while we (are )?(checking|verifying) your browser/i.test(top) ||
+       /this process is automatic\./i.test(top) ||
+       /checking your browser before accessing/i.test(top));
+    if (shortInterstitial) {
+      return 'interstitial';
+    }
 
-      // A visible captcha widget plus a short "confirm you are human" page is a bot wall.
-      // Real pages never embed a captcha, so this needs both signals together.
-      const hasCaptchaWidget = document.querySelector(
-        'iframe[src*="hcaptcha"], iframe[src*="recaptcha"], iframe[src*="turnstile"], iframe[src*="challenges.cloudflare.com"]'
-      );
-      if (hasCaptchaWidget && text.length < 300 && /verify you are human|confirm you are human/i.test(top)) {
-        return 'interstitial';
-      }
+    // A visible captcha widget plus a short "confirm you are human" page is a bot wall.
+    // Real pages never embed a captcha, so this needs both signals together.
+    const hasCaptchaWidget = document.querySelector(
+      'iframe[src*="hcaptcha"], iframe[src*="recaptcha"], iframe[src*="turnstile"], iframe[src*="challenges.cloudflare.com"]'
+    );
+    if (hasCaptchaWidget && text.length < 300 && /verify you are human|confirm you are human/i.test(top)) {
+      return 'interstitial';
+    }
 
-      return false;
-    });
-  } catch (err) {
     return false;
-  }
+  });
 }
 
 // Clicks the Turnstile checkbox if the widget is showing; returns whether it clicked
@@ -100,7 +111,11 @@ async function waitForChallengeBypass(page, maxWaitSeconds = 20) {
   let lastClick = 0;
 
   while (Date.now() - startTime < maxWaitSeconds * 1000) {
-    const challenge = await detectChallengePage(page);
+    // Challenge pages reload themselves once solved, which interrupts the check
+    const challenge = await detectChallengePage(page).catch(err => {
+      if (isNavigationError(err)) return 'navigating';
+      throw err;
+    });
     if (!challenge) {
       return true;
     }
@@ -112,6 +127,56 @@ async function waitForChallengeBypass(page, maxWaitSeconds = 20) {
   }
 
   return false;
+}
+
+// Waits until the document is at least 1s old and its DOM has gone 500ms without changes, so
+// self-reloading pages and client-side rendering finish first. Pages with tickers or rotating
+// ads never go quiet, so this gives up after maxWaitMs.
+async function waitForPageSettle(page, maxWaitMs = 5000) {
+  const deadline = Date.now() + maxWaitMs;
+  while (Date.now() < deadline) {
+    try {
+      return await page.evaluate(remainingMs => new Promise(resolve => {
+        let quietTimer;
+        const observer = new MutationObserver(() => restartQuietTimer());
+        const giveUpTimer = setTimeout(done, remainingMs);
+        function restartQuietTimer() {
+          clearTimeout(quietTimer);
+          quietTimer = setTimeout(done, Math.max(500, 1000 - performance.now()));
+        }
+        function done() {
+          observer.disconnect();
+          clearTimeout(quietTimer);
+          clearTimeout(giveUpTimer);
+          resolve();
+        }
+        observer.observe(document.documentElement, { childList: true, subtree: true, characterData: true });
+        restartQuietTimer();
+      }), deadline - Date.now());
+    } catch (err) {
+      if (!isNavigationError(err)) throw err;
+    }
+  }
+}
+
+// Settles the page, then runs fn (page prep and capture) and returns its result. If the page
+// swaps in a new document meanwhile, the result could mix two documents, so it settles the new
+// one and runs fn again.
+async function retryOnNavigation(page, fn, maxAttempts = 3) {
+  const documentId = () => page.evaluate(() => performance.timeOrigin);
+  for (let attempt = 1; ; attempt++) {
+    await waitForPageSettle(page);
+    try {
+      const before = await documentId();
+      const result = await fn();
+      if (await documentId() === before) return result;
+    } catch (err) {
+      if (!isNavigationError(err)) throw err;
+    }
+    if (attempt === maxAttempts) {
+      throw new Error(`Page kept loading new documents; gave up after ${maxAttempts} attempts`);
+    }
+  }
 }
 
 // Automatically dismisses modals and other UI elements
@@ -271,6 +336,7 @@ module.exports = {
   captureMhtml,
   detectChallengePage,
   waitForChallengeBypass,
+  retryOnNavigation,
   dismissModals,
   initAdblocker,
   loadLazyContent,
